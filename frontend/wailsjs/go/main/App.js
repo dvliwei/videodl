@@ -42,6 +42,10 @@ export function OpenPath(arg1) {
   return window['go']['main']['App']['OpenPath'](arg1);
 }
 
+export function Resolve(arg1, arg2, arg3) {
+  return window['go']['main']['App']['Resolve'](arg1, arg2, arg3);
+}
+
 export function RetryDownload(arg1) {
   return window['go']['main']['App']['RetryDownload'](arg1);
 }
