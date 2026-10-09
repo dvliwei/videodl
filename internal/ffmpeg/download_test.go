@@ -560,4 +560,139 @@ func TestBuildDownloadArgs_NoShellInjection(t *testing.T) {
 	}
 }
 
+func protocolWhitelistValue(t *testing.T, args []string) string {
+	t.Helper()
+	for i, a := range args {
+		if a == "-protocol_whitelist" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	t.Fatal("args missing -protocol_whitelist")
+	return ""
+}
+
+func assertWhitelistContains(t *testing.T, whitelist, needle string) {
+	t.Helper()
+	if !strings.Contains(whitelist, needle) {
+		t.Errorf("whitelist %q should contain %q", whitelist, needle)
+	}
+}
+
+func assertWhitelistNotContains(t *testing.T, whitelist, needle string) {
+	t.Helper()
+	if strings.Contains(whitelist, needle) {
+		t.Errorf("whitelist %q should NOT contain %q", whitelist, needle)
+	}
+}
+
+func TestBuildDownloadArgs_HttpsInput_NoFileProtocol(t *testing.T) {
+	args, err := BuildDownloadArgs(DownloadOptions{
+		InputURL:   "https://example.com/video.mp4",
+		OutputPath: "/tmp/out.mp4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wl := protocolWhitelistValue(t, args)
+	assertWhitelistContains(t, wl, "http")
+	assertWhitelistContains(t, wl, "https")
+	assertWhitelistNotContains(t, wl, "file")
+}
+
+func TestBuildDownloadArgs_HttpInput_NoFileProtocol(t *testing.T) {
+	args, err := BuildDownloadArgs(DownloadOptions{
+		InputURL:   "http://example.com/seg.ts",
+		OutputPath: "/tmp/out.ts",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wl := protocolWhitelistValue(t, args)
+	assertWhitelistContains(t, wl, "http")
+	assertWhitelistNotContains(t, wl, "file")
+}
+
+func TestBuildDownloadArgs_LocalPath_HasFileProtocol(t *testing.T) {
+	args, err := BuildDownloadArgs(DownloadOptions{
+		InputURL:   "/tmp/local/video.mp4",
+		OutputPath: "/tmp/out.mp4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wl := protocolWhitelistValue(t, args)
+	assertWhitelistContains(t, wl, "file")
+	assertWhitelistContains(t, wl, "http")
+	assertWhitelistContains(t, wl, "https")
+}
+
+func TestBuildDownloadArgs_RelativePath_HasFileProtocol(t *testing.T) {
+	args, err := BuildDownloadArgs(DownloadOptions{
+		InputURL:   "./downloads/file.mkv",
+		OutputPath: "/tmp/out.mkv",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wl := protocolWhitelistValue(t, args)
+	assertWhitelistContains(t, wl, "file")
+}
+
+func TestBuildDownloadArgs_FilePathScheme_NoFileProtocol(t *testing.T) {
+	args, err := BuildDownloadArgs(DownloadOptions{
+		InputURL:   "file:///etc/passwd",
+		OutputPath: "/tmp/out.bin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wl := protocolWhitelistValue(t, args)
+	assertWhitelistNotContains(t, wl, "file")
+}
+
+func TestBuildDownloadArgs_FtpScheme_NoFileProtocol(t *testing.T) {
+	args, err := BuildDownloadArgs(DownloadOptions{
+		InputURL:   "ftp://evil.com/secret",
+		OutputPath: "/tmp/out.bin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wl := protocolWhitelistValue(t, args)
+	assertWhitelistNotContains(t, wl, "file")
+	assertWhitelistNotContains(t, wl, "ftp")
+}
+
+func TestProtocolWhitelistFor(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantFile bool
+		wantHTTP bool
+	}{
+		{"https://example.com/v.mp4", false, true},
+		{"http://example.com/v.mp4", false, true},
+		{"/tmp/local.mp4", true, true},
+		{"./local.mp4", true, true},
+		{"file:///etc/passwd", false, true},
+		{"ftp://evil.com/x", false, true},
+		{"rtmp://live/x", false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			wl := protocolWhitelistFor(tt.input)
+			hasFile := strings.Contains(wl, "file")
+			hasHTTP := strings.Contains(wl, "http")
+			if hasFile != tt.wantFile {
+				t.Errorf("protocolWhitelistFor(%q) has file=%v, want %v (wl=%q)",
+					tt.input, hasFile, tt.wantFile, wl)
+			}
+			if hasHTTP != tt.wantHTTP {
+				t.Errorf("protocolWhitelistFor(%q) has http=%v, want %v (wl=%q)",
+					tt.input, hasHTTP, tt.wantHTTP, wl)
+			}
+		})
+	}
+}
+
 var _ = fmt.Sprintf

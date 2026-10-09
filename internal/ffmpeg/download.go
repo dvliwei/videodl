@@ -2,6 +2,7 @@ package ffmpeg
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -64,7 +65,7 @@ func BuildDownloadArgs(opts DownloadOptions) ([]string, error) {
 	}
 
 	args = append(args,
-		"-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+		"-protocol_whitelist", protocolWhitelistFor(opts.InputURL),
 	)
 
 	args = append(args,
@@ -105,4 +106,20 @@ func containerFlags(outputPath string) []string {
 		return []string{"-movflags", "+faststart"}
 	}
 	return nil
+}
+
+const (
+	networkProtocols = "http,https,tcp,tls,crypto"
+	allProtocols     = "file," + networkProtocols
+)
+
+func protocolWhitelistFor(inputURL string) string {
+	u, err := url.Parse(inputURL)
+	if err != nil || u.Scheme == "" {
+		return allProtocols
+	}
+	if u.Scheme == "http" || u.Scheme == "https" {
+		return networkProtocols
+	}
+	return networkProtocols
 }

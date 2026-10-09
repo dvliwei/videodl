@@ -851,3 +851,59 @@ exit 0
 		t.Fatal("ProbeMedia did not return after cancel")
 	}
 }
+
+func TestValidateProbeInput_RejectsFileScheme(t *testing.T) {
+	err := validateProbeInput("file:///etc/passwd")
+	if err == nil {
+		t.Fatal("expected file:// scheme to be rejected")
+	}
+	if !strings.Contains(err.Error(), "file") {
+		t.Errorf("error should mention rejected scheme, got: %v", err)
+	}
+}
+
+func TestValidateProbeInput_RejectsFtpScheme(t *testing.T) {
+	err := validateProbeInput("ftp://evil.com/secret")
+	if err == nil {
+		t.Fatal("expected ftp:// scheme to be rejected")
+	}
+}
+
+func TestValidateProbeInput_RejectsRtmpScheme(t *testing.T) {
+	err := validateProbeInput("rtmp://live.example.com/stream")
+	if err == nil {
+		t.Fatal("expected rtmp:// scheme to be rejected")
+	}
+}
+
+func TestValidateProbeInput_AcceptsHTTPScheme(t *testing.T) {
+	if err := validateProbeInput("http://example.com/video.mp4"); err != nil {
+		t.Fatalf("http:// should be accepted, got %v", err)
+	}
+	if err := validateProbeInput("https://example.com/video.mp4"); err != nil {
+		t.Fatalf("https:// should be accepted, got %v", err)
+	}
+}
+
+func TestValidateProbeInput_AcceptsLocalPath(t *testing.T) {
+	if err := validateProbeInput("/tmp/local/video.mp4"); err != nil {
+		t.Fatalf("local path should be accepted, got %v", err)
+	}
+	if err := validateProbeInput("./relative/path.mp4"); err != nil {
+		t.Fatalf("relative path should be accepted, got %v", err)
+	}
+	if err := validateProbeInput("C:\\Videos\\file.mp4"); err != nil {
+		t.Fatalf("windows path should be accepted, got %v", err)
+	}
+}
+
+func TestProbeMedia_RejectsFileURL(t *testing.T) {
+	inv := NewInvoker(ToolPaths{})
+	_, err := inv.ProbeMedia(context.Background(), "file:///etc/passwd", ProbeOptions{})
+	if err == nil {
+		t.Fatal("expected error for file:// input")
+	}
+	if !strings.Contains(err.Error(), "file") {
+		t.Errorf("error should mention rejected scheme, got: %v", err)
+	}
+}

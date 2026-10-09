@@ -427,6 +427,15 @@ func (s *AnalysisService) probeCandidate(ctx context.Context, c *media.MediaCand
 		return
 	}
 
+	u, err := ValidateURL(probeURL)
+	if err != nil {
+		return
+	}
+
+	if err := s.client.validateAndResolveHost(u.Hostname()); err != nil {
+		return
+	}
+
 	probeCtx, cancel := context.WithTimeout(ctx, time.Duration(s.opts.ProbeTimeout)*time.Second)
 	defer cancel()
 

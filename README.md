@@ -2,6 +2,8 @@
 
 跨平台桌面视频下载器，使用 Go、Wails v2、Vue 3 和 Vite 构建。用户粘贴公开网页 URL，应用自动识别页面中的视频资源（支持直链、HLS、DASH），选择清晰度后即可下载、合并或转码。
 
+> 当前状态：MVP 修复中，暂不可发布。下载任务仍有 mock pipeline，安全发布、平台签名和端到端媒体验收尚未完成。请按 [`docs/TRAE_REPAIR_BACKLOG.md`](docs/TRAE_REPAIR_BACKLOG.md) 的 `R-001` 到 `R-009` 顺序修复。
+
 ## 功能特性
 
 - **多平台支持**：Windows x86_64、macOS x86_64/ARM64、Linux x86_64
@@ -86,6 +88,8 @@
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)：当前架构审查、模块边界和接口约定。
 - [`docs/DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md)：按依赖顺序排列的实现任务和验收条件。
 - [`docs/TRAE_GUIDE.md`](docs/TRAE_GUIDE.md)：使用 TRAE 按任务实现和交付的说明。
+- [`docs/BUGS.md`](docs/BUGS.md)：已确认 Bug、优先级、影响和验收要求。
+- [`docs/TRAE_REPAIR_BACKLOG.md`](docs/TRAE_REPAIR_BACKLOG.md)：TRAE 单任务修复入口。
 
 ## 本地开发
 
@@ -130,12 +134,7 @@ make quick-build
 
 ### 构建产物验证
 
-生产构建会自动完成：
-- FFmpeg 资产 SHA-256 校验（`scripts/verify_ffmpeg.sh`）
-- 应用包内 FFmpeg 架构与可执行权限检查
-- macOS 自签名（ad-hoc）与嵌套可执行文件签名
-- Windows NSIS 安装器打包
-- Linux 可执行权限和运行时依赖检查
+生产构建不会自动完成全部发布验收。构建后必须手动执行 `make ffmpeg-verify`，并按目标平台检查资源、签名、安装器和运行依赖。macOS 资源注入必须在最终签名前完成。
 
 ## FFmpeg 发行材料
 
@@ -173,9 +172,10 @@ make ffmpeg-clean
 
 ## 发布验收清单
 
-- [x] 所有 Go 单元测试通过 (`go test ./...`)
+- [ ] 所有 Go 单元测试通过 (`go test ./...`)
+- [x] Go 内部包测试和 race 测试通过 (`go test ./internal/...`)
 - [x] 前端生产构建通过 (`npm run build`)
-- [x] macOS ARM64 构建 + ad-hoc 签名验证 (`codesign -dvvv`)
+- [ ] macOS ARM64 最终包签名验证 (`codesign --verify --deep --strict`)
 - [ ] macOS x86_64 交叉构建验证（需 CI 或 x86_64 机器）
 - [ ] Windows x86_64 构建 + NSIS 安装器验证（需 Windows 机器）
 - [ ] Linux x86_64 构建 + 运行时依赖检查（需 Linux 机器）
@@ -184,3 +184,4 @@ make ffmpeg-clean
 - [x] FFmpeg 四平台资产 SHA-256 校验
 - [x] FFmpeg 许可证材料随包分布
 - [x] 不支持场景文档随 README 可查
+- [ ] 真实直链/HLS/DASH 下载、取消、重试、重名和转码冒烟测试

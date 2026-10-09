@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -88,6 +89,10 @@ type ffFormatRaw struct {
 func (inv *Invoker) ProbeMedia(ctx context.Context, input string, opts ProbeOptions) (*MediaInfo, error) {
 	if input == "" {
 		return nil, fmt.Errorf("ffmpeg: ProbeMedia: empty input")
+	}
+
+	if err := validateProbeInput(input); err != nil {
+		return nil, err
 	}
 
 	opts = opts.withDefaults()
@@ -278,4 +283,18 @@ func firstNonEmpty(values ...string) string {
 
 func secondsToDuration(seconds int) time.Duration {
 	return time.Duration(seconds) * time.Second
+}
+
+func validateProbeInput(input string) error {
+	u, err := url.Parse(input)
+	if err != nil || u.Scheme == "" {
+		return nil
+	}
+	if u.Scheme == "http" || u.Scheme == "https" {
+		return nil
+	}
+	if len(u.Scheme) == 1 {
+		return nil
+	}
+	return fmt.Errorf("ffmpeg: ProbeMedia: scheme %q is not allowed", u.Scheme)
 }
