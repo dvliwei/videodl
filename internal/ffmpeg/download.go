@@ -76,19 +76,10 @@ func BuildDownloadArgs(opts DownloadOptions) ([]string, error) {
 
 	args = append(args, selectStreamArgs(opts)...)
 
-	switch opts.Profile {
-	case media.ProfileMP4:
-		args = append(args,
-			"-c:v", "libx264",
-			"-preset", "veryfast",
-			"-crf", "23",
-			"-pix_fmt", "yuv420p",
-			"-c:a", "aac",
-			"-b:a", "128k",
-			"-movflags", "+faststart",
-		)
-	default:
-		args = append(args, "-c", "copy")
+	preset, _ := GetPreset(opts.Profile)
+	args = append(args, preset.Args...)
+
+	if preset.StreamCopy {
 		args = append(args, containerFlags(opts.OutputPath)...)
 	}
 
