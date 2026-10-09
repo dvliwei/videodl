@@ -31,6 +31,8 @@ const (
 	defaultMaxProbeConcurrency        = 4
 
 	htmlClassifyTag = "html"
+
+	unknownProbeBytes = 32 * 1024
 )
 
 type ServiceOptions struct {
@@ -98,12 +100,10 @@ func (s *AnalysisService) Analyze(ctx context.Context, rawURL string) (*media.An
 		Candidates: []media.MediaCandidate{},
 	}
 
-	body, finalURL, contentType, err := s.fetchAndClassify(ctx, u)
+	body, finalURL, contentType, srcType, err := s.fetchAndClassify(ctx, u)
 	if err != nil {
 		return nil, err
 	}
-
-	srcType := classifyContent(contentType, body, u)
 
 	switch srcType {
 	case string(media.SourceHLS), string(media.SourceDASH):
@@ -123,27 +123,27 @@ func (s *AnalysisService) Analyze(ctx context.Context, rawURL string) (*media.An
 	}
 }
 
-func (s *AnalysisService) fetchAndClassify(ctx context.Context, u *url.URL) (body []byte, finalURL *url.URL, contentType string, err error) {
+func (s *AnalysisService) fetchAndClassify(ctx context.Context, u *url.URL) (body []byte, finalURL *url.URL, contentType string, srcType string, err error) {
 	reqCtx, cancel := context.WithTimeout(ctx, s.client.config.TotalTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", "", err
 	}
 
 	if err := s.client.DoWithHeaders(req); err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", "", err
 	}
 
 	resp, err := s.client.http.Do(req)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("analyzer: fetch failed: %w", err)
+		return nil, nil, "", "", fmt.Errorf("analyzer: fetch failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, nil, "", fmt.Errorf("analyzer: unexpected status %d", resp.StatusCode)
+		return nil, nil, "", "", fmt.Errorf("analyzer: unexpected status %d", resp.StatusCode)
 	}
 
 	finalURL = resp.Request.URL
@@ -153,20 +153,67 @@ func (s *AnalysisService) fetchAndClassify(ctx context.Context, u *url.URL) (bod
 
 	contentType = strings.ToLower(resp.Header.Get("Content-Type"))
 
-	maxBody := s.client.config.MaxBodyBytes
-	limited := &io.LimitedReader{
-		R: resp.Body,
-		N: maxBody + 1,
-	}
-	body, err = io.ReadAll(limited)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	if int64(len(body)) > maxBody {
-		return nil, nil, "", ErrBodyTooLarge
-	}
+	pre := preclassifyResponse(contentType, finalURL)
 
-	return body, finalURL, contentType, nil
+	switch pre {
+	case string(media.SourceDirect):
+		return nil, finalURL, contentType, string(media.SourceDirect), nil
+
+	case string(media.SourceHLS), string(media.SourceDASH), htmlClassifyTag:
+		limited := &io.LimitedReader{
+			R: resp.Body,
+			N: s.client.config.MaxBodyBytes + 1,
+		}
+		body, err = io.ReadAll(limited)
+		if err != nil {
+			return nil, nil, "", "", err
+		}
+		if int64(len(body)) > s.client.config.MaxBodyBytes {
+			return nil, nil, "", "", ErrBodyTooLarge
+		}
+		return body, finalURL, contentType, pre, nil
+
+	default:
+		limited := &io.LimitedReader{
+			R: resp.Body,
+			N: unknownProbeBytes + 1,
+		}
+		body, err = io.ReadAll(limited)
+		if err != nil {
+			return nil, nil, "", "", err
+		}
+		detected := classifyContent(contentType, body, finalURL)
+
+		switch detected {
+		case string(media.SourceHLS), string(media.SourceDASH):
+			return body, finalURL, contentType, detected, nil
+		case htmlClassifyTag:
+			return body, finalURL, contentType, htmlClassifyTag, nil
+		case "":
+			return nil, finalURL, contentType, "", nil
+		default:
+			if int64(len(body)) > s.client.config.MaxBodyBytes {
+				return nil, nil, "", "", ErrBodyTooLarge
+			}
+			return body, finalURL, contentType, detected, nil
+		}
+	}
+}
+
+func preclassifyResponse(contentType string, u *url.URL) string {
+	ext := strings.ToLower(path.Ext(u.Path))
+
+	switch {
+	case ext == ".m3u8" || strings.Contains(contentType, "mpegurl") || strings.Contains(contentType, "vnd.apple.mpegurl"):
+		return string(media.SourceHLS)
+	case ext == ".mpd" || strings.Contains(contentType, "application/dash+xml"):
+		return string(media.SourceDASH)
+	case strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/xhtml+xml"):
+		return htmlClassifyTag
+	case isMediaExtension(ext) || isMediaContentType(contentType):
+		return string(media.SourceDirect)
+	}
+	return ""
 }
 
 func classifyContent(contentType string, body []byte, u *url.URL) string {
@@ -256,11 +303,12 @@ func (s *AnalysisService) buildCandidateFromRef(ctx context.Context, ref MediaRe
 		manifest, err := s.client.FetchManifest(ctx, ref.URL)
 		if err != nil {
 			return &media.MediaCandidate{
-				ID:          newCandidateID(),
-				Title:       ref.Title,
-				DisplayURL:  ref.DisplayURL,
-				SourceType:  media.SourceHLS,
-				Unsupported: fmt.Sprintf("manifest fetch failed: %v", err),
+				ID:                newCandidateID(),
+				Title:             ref.Title,
+				DisplayURL:        ref.DisplayURL,
+				SourceType:        media.SourceHLS,
+				Unsupported:       fmt.Sprintf("manifest fetch failed: %v", err),
+				InternalSourceURL: ref.URL,
 			}, nil
 		}
 		return s.buildCandidateFromManifest(ctx, manifest.Body, manifest.FinalURL, media.SourceHLS, ref)
@@ -270,11 +318,12 @@ func (s *AnalysisService) buildCandidateFromRef(ctx context.Context, ref MediaRe
 		manifest, err := s.client.FetchManifest(ctx, ref.URL)
 		if err != nil {
 			return &media.MediaCandidate{
-				ID:          newCandidateID(),
-				Title:       ref.Title,
-				DisplayURL:  ref.DisplayURL,
-				SourceType:  media.SourceDASH,
-				Unsupported: fmt.Sprintf("manifest fetch failed: %v", err),
+				ID:                newCandidateID(),
+				Title:             ref.Title,
+				DisplayURL:        ref.DisplayURL,
+				SourceType:        media.SourceDASH,
+				Unsupported:       fmt.Sprintf("manifest fetch failed: %v", err),
+				InternalSourceURL: ref.URL,
 			}, nil
 		}
 		return s.buildCandidateFromManifest(ctx, manifest.Body, manifest.FinalURL, media.SourceDASH, ref)
@@ -282,11 +331,12 @@ func (s *AnalysisService) buildCandidateFromRef(ctx context.Context, ref MediaRe
 
 	if isMediaExtension(ext) {
 		c := &media.MediaCandidate{
-			ID:         newCandidateID(),
-			Title:      firstNonEmpty(ref.Title, deriveTitle(u.Path)),
-			DisplayURL: ref.DisplayURL,
-			SourceType: media.SourceDirect,
-			Format:     strings.TrimPrefix(ext, "."),
+			ID:                newCandidateID(),
+			Title:             firstNonEmpty(ref.Title, deriveTitle(u.Path)),
+			DisplayURL:        ref.DisplayURL,
+			SourceType:        media.SourceDirect,
+			Format:            strings.TrimPrefix(ext, "."),
+			InternalSourceURL: ref.URL,
 		}
 		applyMediaDefaults(c, ext, "")
 		s.probeCandidate(ctx, c, ref.URL)
@@ -313,12 +363,14 @@ func (s *AnalysisService) analyzeManifest(ctx context.Context, body []byte, base
 	}
 
 	c := &media.MediaCandidate{
-		ID:         newCandidateID(),
-		Title:      deriveTitle(base.Path),
-		DisplayURL: SanitizeDisplayURL(base),
-		SourceType: parsed.SourceType,
+		ID:                newCandidateID(),
+		Title:             deriveTitle(base.Path),
+		DisplayURL:        SanitizeDisplayURL(base),
+		SourceType:        parsed.SourceType,
+		InternalSourceURL: base.String(),
 	}
 
+	variantManifests := map[string]string{}
 	for i, v := range parsed.Variants {
 		mv := media.MediaVariant{
 			ID:        fmt.Sprintf("%s-v%d", c.ID, i),
@@ -330,6 +382,16 @@ func (s *AnalysisService) analyzeManifest(ctx context.Context, body []byte, base
 			HasAudio:  v.HasAudio,
 		}
 		c.Variants = append(c.Variants, mv)
+		addr := v.SubManifestURL
+		if addr == "" {
+			addr = v.SegmentURL
+		}
+		if addr != "" {
+			variantManifests[mv.ID] = addr
+		}
+	}
+	if len(variantManifests) > 0 {
+		c.InternalVariantManifests = variantManifests
 	}
 
 	c.HasVideo = len(parsed.Variants) > 0 && parsed.Variants[0].HasVideo
@@ -354,31 +416,35 @@ func (s *AnalysisService) buildCandidateFromManifest(ctx context.Context, body [
 	parsed, err := ParseManifest(body, base)
 	if err != nil {
 		return &media.MediaCandidate{
-			ID:          newCandidateID(),
-			Title:       firstNonEmpty(ref.Title, deriveTitle(base.Path)),
-			DisplayURL:  ref.DisplayURL,
-			SourceType:  srcType,
-			Unsupported: fmt.Sprintf("manifest parse failed: %v", err),
+			ID:                newCandidateID(),
+			Title:             firstNonEmpty(ref.Title, deriveTitle(base.Path)),
+			DisplayURL:        ref.DisplayURL,
+			SourceType:        srcType,
+			Unsupported:       fmt.Sprintf("manifest parse failed: %v", err),
+			InternalSourceURL: ref.URL,
 		}, nil
 	}
 
 	if parsed.DRM {
 		return &media.MediaCandidate{
-			ID:          newCandidateID(),
-			Title:       firstNonEmpty(ref.Title, deriveTitle(base.Path)),
-			DisplayURL:  ref.DisplayURL,
-			SourceType:  srcType,
-			Unsupported: "DRM protected: " + parsed.DRMReason,
+			ID:                newCandidateID(),
+			Title:             firstNonEmpty(ref.Title, deriveTitle(base.Path)),
+			DisplayURL:        ref.DisplayURL,
+			SourceType:        srcType,
+			Unsupported:       "DRM protected: " + parsed.DRMReason,
+			InternalSourceURL: ref.URL,
 		}, nil
 	}
 
 	c := &media.MediaCandidate{
-		ID:         newCandidateID(),
-		Title:      firstNonEmpty(ref.Title, deriveTitle(base.Path)),
-		DisplayURL: ref.DisplayURL,
-		SourceType: srcType,
+		ID:                newCandidateID(),
+		Title:             firstNonEmpty(ref.Title, deriveTitle(base.Path)),
+		DisplayURL:        ref.DisplayURL,
+		SourceType:        srcType,
+		InternalSourceURL: ref.URL,
 	}
 
+	variantManifests := map[string]string{}
 	for i, v := range parsed.Variants {
 		mv := media.MediaVariant{
 			ID:        fmt.Sprintf("%s-v%d", c.ID, i),
@@ -390,6 +456,16 @@ func (s *AnalysisService) buildCandidateFromManifest(ctx context.Context, body [
 			HasAudio:  v.HasAudio,
 		}
 		c.Variants = append(c.Variants, mv)
+		addr := v.SubManifestURL
+		if addr == "" {
+			addr = v.SegmentURL
+		}
+		if addr != "" {
+			variantManifests[mv.ID] = addr
+		}
+	}
+	if len(variantManifests) > 0 {
+		c.InternalVariantManifests = variantManifests
 	}
 
 	c.HasVideo = len(parsed.Variants) > 0 && parsed.Variants[0].HasVideo
@@ -407,11 +483,12 @@ func (s *AnalysisService) buildCandidateFromManifest(ctx context.Context, body [
 func (s *AnalysisService) analyzeDirectMedia(ctx context.Context, u *url.URL, contentType string, result *media.AnalysisResult) (*media.AnalysisResult, error) {
 	ext := strings.ToLower(path.Ext(u.Path))
 	c := &media.MediaCandidate{
-		ID:         newCandidateID(),
-		Title:      deriveTitle(u.Path),
-		DisplayURL: SanitizeDisplayURL(u),
-		SourceType: media.SourceDirect,
-		Format:     strings.TrimPrefix(ext, "."),
+		ID:                newCandidateID(),
+		Title:             deriveTitle(u.Path),
+		DisplayURL:        SanitizeDisplayURL(u),
+		SourceType:        media.SourceDirect,
+		Format:            strings.TrimPrefix(ext, "."),
+		InternalSourceURL: u.String(),
 	}
 
 	applyMediaDefaults(c, ext, contentType)

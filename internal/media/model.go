@@ -32,7 +32,9 @@ type AnalysisResult struct {
 }
 
 // MediaCandidate describes a downloadable media item without exposing a URL as
-// an authority-bearing download parameter.
+// an authority-bearing download parameter. InternalSourceURL and
+// InternalVariantManifests carry the real download addresses for the backend
+// pipeline only and are never serialized to the frontend.
 type MediaCandidate struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
@@ -48,6 +50,18 @@ type MediaCandidate struct {
 	HasAudio        bool           `json:"hasAudio"`
 	Variants        []MediaVariant `json:"variants,omitempty"`
 	Unsupported     string         `json:"unsupported,omitempty"`
+
+	// Internal fields — not serialized to the frontend.
+
+	// InternalSourceURL is the real URL FFmpeg will open. For direct sources
+	// it is the absolute media URL. For HLS it is the master manifest URL.
+	// For DASH it is the MPD URL.
+	InternalSourceURL string `json:"-"`
+
+	// InternalVariantManifests maps a VariantID to the absolute sub-manifest
+	// URL (HLS) or base MPD + Representation selector (DASH). nil entries
+	// mean the master manifest / MPD should be used directly.
+	InternalVariantManifests map[string]string `json:"-"`
 }
 
 // MediaVariant describes a selectable rendition in an HLS or DASH manifest.
@@ -68,16 +82,17 @@ type MediaVariant struct {
 // frontend: raw segment URLs and codec descriptors must stay inside the
 // analyzer layer.
 type ManifestVariant struct {
-	ID          string
-	Label       string
-	Width       int
-	Height      int
-	Bandwidth   int64
-	HasVideo    bool
-	HasAudio    bool
-	Codecs      string
-	SegmentURL  string
-	BaseSegment string
+	ID             string
+	Label          string
+	Width          int
+	Height         int
+	Bandwidth      int64
+	HasVideo       bool
+	HasAudio       bool
+	Codecs         string
+	SegmentURL     string
+	BaseSegment    string
+	SubManifestURL string
 }
 
 // ManifestAudioTrack is an audio-only variant described by EXT-X-MEDIA (HLS)

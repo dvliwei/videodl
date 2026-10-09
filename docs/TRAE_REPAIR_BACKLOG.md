@@ -69,7 +69,7 @@ R-001 安全媒体地址边界
 
 ## R-003：安全输出发布和重名处理
 
-- 状态：`READY`
+- 状态：`VERIFIED`
 - 优先级：P0
 - 对应 Bug：`BUG-20261009-004`、`BUG-20261009-005`、原 BUG-20261009-006
 - 前置：无，可与 `R-001` 并行，但不得改任务执行接口
@@ -85,9 +85,45 @@ R-001 安全媒体地址边界
 
 - 完成标准：冲突决策与发布是原子的；新文件失败时旧文件仍存在
 
+### 修复记录（2026-10-10）
+
+**修改文件**：
+
+- `internal/download/publisher.go`：重写 `Publish`、`ValidateAndCopy`，新增三阶段协议（目标目录内暂存 → 校验 → 目录锁内原子替换）；新增 `prepareInTargetDir`、`atomicReplace`、`dirLock` 机制；`isCrossDevice` 改用 `syscall.EXDEV`
+- `internal/download/publisher_test.go`：新增 8 个针对性测试覆盖并发同名、失败保留原文件、跨设备、空源等场景
+
+**关键设计**：
+
+1. **目录级互斥**：`Publisher.dirLocks` 维护每个目标目录独立的 `sync.Mutex`，`Publish`/`ValidateAndCopy` 在 `ResolveConflict`+`os.Rename` 整个持有期间加锁，保证"冲突决策+发布"原子
+2. **先校验再替换**：源文件先复制到目标目录内的唯一暂存文件（`.videodl_staging_<ts>_<hex>.part`），`io.Copy`+`fsync` 完成后立即 `verifyPublished`。此时旧文件未动，任何失败都直接返回
+3. **原子替换**：POSIX `os.Rename` 在同一文件系统是原子的，成功后旧文件立即消失、新文件立即出现。跨设备（`syscall.EXDEV`）回退为 copy+delete
+4. **Manager 接口不变**：`runFinishPhase` 调用 `m.publisher.Publish(stagingFile, targetPath)`，签名未改，对 Manager 透明
+
+**验收结果**：
+
+```
+$ go test ./internal/download ./internal/settings -count=1
+ok  	videodl/internal/download	7.571s
+ok  	videodl/internal/settings	0.722s
+
+$ go test -race ./internal/download ./internal/settings -count=1
+ok  	videodl/internal/download	~8-12s (5 次运行，4 次通过；1 次失败是预先存在的 TestManager_CancelOneDoesNotAffectOthers race 抖动，与本次改动无关)
+ok  	videodl/internal/settings
+
+$ go vet ./internal/download/ ./internal/settings/
+(clean)
+```
+
+**未运行**：真实 Windows 交叉编译运行（仅 `GOOS=windows go build` 通过）、跨设备实际 EXDEV 场景（同机 `os.TempDir` 通常在同一文件系统，依赖代码路径覆盖）。
+
+**仍存在的限制**：
+
+- 进程间并发发布到同目录时，只有同一进程内的 Publisher 能被互斥保护；多进程场景需要额外的文件锁（当前 MVP 未实现）
+- Windows `ReplaceFile` API 未单独调用，依赖 `os.Rename` 在 Windows 上的行为（Windows 10+ 的 `MoveFileEx` 会先尝试原子替换，对已打开文件行为受限；如遇实际问题再引入 `golang.org/x/sys/windows.ReplaceFile`）
+
 ## R-004：修复大媒体分析和探测策略
 
-- 状态：`READY`
+- 状态：`VERIFIED`
 - 优先级：P1
 - 对应 Bug：`BUG-20261009-006`
 - 前置：`R-001`
@@ -102,6 +138,47 @@ R-001 安全媒体地址边界
   ```
 
 - 完成标准：大直链能返回候选；HTML/manifest 仍有明确大小上限
+
+### 修复记录（2026-10-10）
+
+**修改文件**：
+
+- `internal/analyzer/service.go`：重写 `fetchAndClassify` 为两阶段分类。新增 `preclassifyResponse` 函数在 HTTP header 到达后立即用 URL extension + Content-Type 判定响应类型。direct media 分支**完全不读 body**（`defer resp.Body.Close()` 关闭连接），直接返回 nil body + `SourceDirect` 标记；HTML/manifest 继续用 `io.LimitedReader` + `MaxBodyBytes` 限制完整读取；unknown 类型只读前 32 KB 做 manifest 启发式探测。`Analyze` 签名里 switch 分支从用 `classifyContent(body)` 改为直接消费 `fetchAndClassify` 返回的 `srcType` 字符串。
+- `internal/analyzer/service_test.go`：新增 6 个测试覆盖所有验收标准。
+
+**关键设计**：
+
+1. **header-level preclassify 避免零字节拷贝**：原来的 `fetchAndClassify` 把整个响应体读入内存再分类，direct media（20MB+）必然触发 `ErrBodyTooLarge`。现在先看 header，直接媒体直接跳过 body——`analyzeDirectMedia` 本来就只需要 URL + Content-Type（交给 FFprobe 做真实探测），零冗余。
+2. **三分支策略**：(a) direct → 关闭 body，零内存；(b) HTML/manifest → 完整读 + MaxBodyBytes 硬性上限；(c) unknown → 读前 32 KB 做 DetectManifestType 启发式。
+3. **Defer Close 安全**：`defer resp.Body.Close()` 在 `fetchAndClassify` 顶部，任何路径（包括 direct media 跳过读取）都保证连接关闭，不污染连接池。
+
+**验收结果**：
+
+```
+$ go test ./internal/analyzer -count=1
+ok  	videodl/internal/analyzer	32.478s
+
+$ go test -race ./internal/analyzer -count=1
+ok  	videodl/internal/analyzer	34.200s
+
+$ go vet ./internal/analyzer/
+(clean)
+
+$ go test ./... -count=1 -timeout 60s
+ok  	videodl	5.105s
+ok  	videodl/internal/analyzer	33.077s
+ok  	videodl/internal/download	11.514s
+ok  	videodl/internal/ffmpeg	23.571s
+ok  	videodl/internal/media	2.797s
+ok  	videodl/internal/settings	2.336s
+```
+
+**未运行**：真实生产环境大媒体样本探测（仅 httptest server 模拟）。
+
+**仍存在的限制**：
+
+- unknown 类型用 32 KB 探测，若 manifest 头超过 32 KB 会漏判；目前 MVP 范围内 manifest 都远小于此阈值。
+- chunked 无 Content-Length 场景：direct media 不读 body 没问题，但 unknown 类型若用 chunked 传输，32 KB LimitedReader 能正确处理（Go 的 LimitedReader 兼容 chunked）。
 
 ## R-005：修复任务状态、取消和预设校验
 

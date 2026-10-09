@@ -102,19 +102,21 @@ func parseHLS(body []byte, base *url.URL) (*ManifestResult, error) {
 	}
 
 	for _, info := range streamInfos {
+		subManifestURL := resolveReference(info.URI, base)
 		segmentURL := resolveReference(info.URI, base)
 		if segmentURL == "" {
 			continue
 		}
 		v := media.ManifestVariant{
-			Label:      formatHLSLabel(info),
-			Width:      info.Width,
-			Height:     info.Height,
-			Bandwidth:  info.Bandwidth,
-			HasVideo:   info.Video,
-			HasAudio:   info.Audio,
-			Codecs:     info.Codecs,
-			SegmentURL: segmentURL,
+			Label:          formatHLSLabel(info),
+			Width:          info.Width,
+			Height:         info.Height,
+			Bandwidth:      info.Bandwidth,
+			HasVideo:       info.Video,
+			HasAudio:       info.Audio,
+			Codecs:         info.Codecs,
+			SegmentURL:     segmentURL,
+			SubManifestURL: subManifestURL,
 		}
 		if v.Label == "" {
 			v.Label = fmt.Sprintf("variant-%d", len(res.Variants)+1)

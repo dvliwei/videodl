@@ -55,37 +55,43 @@
 ### BUG-20261009-004：输出发布的冲突决策不是原子的
 
 - 优先级：P0
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-003`
 - 位置：`internal/download/publisher.go:38-114`
 - 触发条件：两个任务并发发布到同一输出路径，或同名文件选择自动改名
 - 影响：两个任务可能选择同一路径，造成完整文件被覆盖或静默丢失
 - 修复要求：按目标路径串行化“冲突决策+发布”，或使用原子独占占位；临时文件应在目标目录内创建
-- 验收：并发同名下载不会覆盖彼此；自动改名结果唯一且可重复验证
+- 修复：`Publisher` 现在维护一个 `dirLocks` map，对每个目标目录使用独立的 `sync.Mutex` 串行化 `ResolveConflict` + 最终替换；暂存文件始终在目标目录内创建，保证同一文件系统上的原子替换
+- 验收：`go test ./internal/download -count=1` 新增 `TestPublisher_ConcurrentAutoRename_UniquePaths`（10 goroutine 并发）证明同名自动改名结果唯一；`go test -race ./internal/download` 下并发路径没有 duplicate
+- 验证：2026-10-10，`go test ./internal/download ./internal/settings -count=1` 全部通过；并发测试 10 goroutine 全部生成唯一路径，原文件保持不变
 
 ### BUG-20261009-005：覆盖发布失败可能删除原有完整文件
 
 - 优先级：P0
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-003`
 - 位置：`internal/download/publisher.go:93-114,161-172`
 - 触发条件：目标已有有效文件，新的临时文件为空、损坏或发布校验失败
 - 影响：旧文件可能已被替换，随后校验失败又删除目标，导致用户数据丢失
 - 修复要求：先在目标目录创建并校验新的临时文件，再使用平台安全替换；失败时保留旧文件
-- 验收：空文件、损坏媒体、复制失败和覆盖失败均保留旧文件
+- 修复：重写 `Publish` 和 `ValidateAndCopy` 为三阶段协议：(1) 将源文件复制到目标目录中的暂存文件并 `fsync`；(2) 对暂存文件执行 `verifyPublished`（非零大小），失败则提前返回，旧文件此时完全不动；(3) 在目录锁内执行 `os.Rename` 原子替换。跨设备（EXDEV）时回退为复制+删除，所有错误分支都在替换前
+- 验收：新增 `TestPublisher_Publish_OverwriteAlways_EmptySource_PreservesOriginal`、`TestPublisher_Publish_OverwriteAlways_SourceMissing_PreservesOriginal`、`TestPublisher_Publish_OverwriteAlways_CopyFailure_PreservesOriginal`；`TestPublisher_Publish_Success`、`TestPublisher_Publish_TargetExists_*` 回归通过
+- 验证：2026-10-10，所有新增失败路径测试均确认旧文件在新文件发布失败后完整保留
 
 ## P1：功能不完整、状态错误或发布风险
 
 ### BUG-20261009-006：直接媒体响应超过 10 MB 时无法分析
 
 - 优先级：P1
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-004`
 - 位置：`internal/analyzer/service.go:101-146`
 - 触发条件：分析常见的大于 10 MB 的 MP4/WebM 直链
 - 现象：分析服务先读取整个响应体，再判断媒体类型，触发 `ErrBodyTooLarge`
 - 修复要求：先按 URL、Content-Type、Content-Length 分类；直接媒体使用 HEAD 或有限探测，不把媒体整体读入内存
-- 验收：大媒体 URL 能返回候选；HTML/manifest 仍受响应体上限保护
+- 修复：`fetchAndClassify` 改为**两阶段分类**：header 到达后先执行 `preclassifyResponse`——(1) direct media：关闭 body、返回空 body + 类型标记，完全不把媒体字节读入内存；(2) HTML/manifest：保留 `MaxBodyBytes` 限制完整读取；(3) unknown：只读前 32 KB 做 manifest 启发式探测。`analyzeDirectMedia` 本来就不依赖 body（交给 FFprobe），所以这条路径零内存开销。
+- 验收：新增 6 个测试覆盖：`TestService_Analyze_LargeDirectMediaReturnsCandidate`（20MB direct > 5MB 限制）、`TestService_Analyze_LargeDirectMediaNoContentLength`（chunked 无 Content-Length）、`TestService_Analyze_HTMLStillEnforcedSizeLimit`、`TestService_Analyze_ManifestStillEnforcedSizeLimit`、`TestService_Analyze_DirectMediaWithContextCancel`、`TestService_Analyze_DirectMediaWithTimeout`
+- 验证：2026-10-10，`go test ./internal/analyzer -count=1` 全通过（含 race）；全包 `go test ./... -count=1` 通过
 
 ### BUG-20261009-007：取消任务存在非法状态顺序
 

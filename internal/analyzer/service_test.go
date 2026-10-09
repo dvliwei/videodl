@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -917,4 +918,209 @@ func TestService_Analyze_ConcurrentProbe(t *testing.T) {
 	}
 
 	t.Logf("accessCount: %d", accessCount)
+}
+
+func TestService_Analyze_LargeDirectMediaReturnsCandidate(t *testing.T) {
+	big := make([]byte, 20*1024*1024)
+	for i := range big {
+		big[i] = byte(i % 256)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.WriteHeader(http.StatusOK)
+		w.Write(big)
+	}))
+	defer srv.Close()
+
+	client := makeClientWithTrusted("localhost")
+	client.config.MaxBodyBytes = 5 * 1024 * 1024
+	svc := NewAnalysisService(client, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := svc.Analyze(ctx, testServerURL(srv, "/huge.mp4"))
+	if err != nil {
+		t.Fatalf("Analyze should NOT fail for large direct media: %v", err)
+	}
+	if len(result.Candidates) != 1 {
+		t.Fatalf("expected 1 candidate for large direct media, got %d", len(result.Candidates))
+	}
+	c := result.Candidates[0]
+	if c.SourceType != media.SourceDirect {
+		t.Errorf("expected SourceDirect, got %s", c.SourceType)
+	}
+	if c.Format != "mp4" {
+		t.Errorf("expected format mp4, got %q", c.Format)
+	}
+}
+
+func TestService_Analyze_LargeDirectMediaNoContentLength(t *testing.T) {
+	big := make([]byte, 20*1024*1024)
+	for i := range big {
+		big[i] = byte(i % 256)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			w.Header().Set("Content-Type", "video/webm")
+			w.WriteHeader(http.StatusOK)
+			w.Write(big)
+			return
+		}
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			w.Header().Set("Content-Type", "video/webm")
+			w.WriteHeader(http.StatusOK)
+			w.Write(big)
+			return
+		}
+		defer conn.Close()
+		fmt.Fprintf(conn, "HTTP/1.1 200 OK\r\nContent-Type: video/webm\r\nTransfer-Encoding: chunked\r\n\r\n")
+		chunkSize := 64 * 1024
+		for i := 0; i < len(big); i += chunkSize {
+			end := i + chunkSize
+			if end > len(big) {
+				end = len(big)
+			}
+			fmt.Fprintf(conn, "%x\r\n", end-i)
+			conn.Write(big[i:end])
+			fmt.Fprintf(conn, "\r\n")
+		}
+		fmt.Fprintf(conn, "0\r\n\r\n")
+	}))
+	defer srv.Close()
+
+	client := makeClientWithTrusted("localhost")
+	client.config.MaxBodyBytes = 5 * 1024 * 1024
+	svc := NewAnalysisService(client, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	result, err := svc.Analyze(ctx, testServerURL(srv, "/stream.webm"))
+	if err != nil {
+		t.Fatalf("Analyze should NOT fail for chunked direct media: %v", err)
+	}
+	if len(result.Candidates) != 1 {
+		t.Fatalf("expected 1 candidate for chunked direct media, got %d", len(result.Candidates))
+	}
+	c := result.Candidates[0]
+	if c.SourceType != media.SourceDirect {
+		t.Errorf("expected SourceDirect, got %s", c.SourceType)
+	}
+	if c.Format != "webm" {
+		t.Errorf("expected format webm, got %q", c.Format)
+	}
+}
+
+func TestService_Analyze_HTMLStillEnforcedSizeLimit(t *testing.T) {
+	big := make([]byte, 10*1024*1024+1)
+	for i := range big {
+		big[i] = 'x'
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write(big)
+	}))
+	defer srv.Close()
+
+	client := makeClientWithTrusted("localhost")
+	client.config.MaxBodyBytes = 1024
+	svc := NewAnalysisService(client, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := svc.Analyze(ctx, testServerURL(srv, "/big.html"))
+	if err == nil {
+		t.Fatal("expected ErrBodyTooLarge for oversized HTML, got nil")
+	}
+	if !errors.Is(err, ErrBodyTooLarge) {
+		t.Errorf("expected ErrBodyTooLarge, got %v", err)
+	}
+}
+
+func TestService_Analyze_ManifestStillEnforcedSizeLimit(t *testing.T) {
+	big := make([]byte, 10*1024*1024+1)
+	for i := range big {
+		big[i] = 'x'
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Write(big)
+	}))
+	defer srv.Close()
+
+	client := makeClientWithTrusted("localhost")
+	client.config.MaxBodyBytes = 1024
+	svc := NewAnalysisService(client, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := svc.Analyze(ctx, testServerURL(srv, "/huge.m3u8"))
+	if err == nil {
+		t.Fatal("expected ErrBodyTooLarge for oversized manifest, got nil")
+	}
+	if !errors.Is(err, ErrBodyTooLarge) {
+		t.Errorf("expected ErrBodyTooLarge, got %v", err)
+	}
+}
+
+func TestService_Analyze_DirectMediaWithContextCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Second)
+		w.Header().Set("Content-Type", "video/mp4")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := makeClientWithTrusted("localhost")
+	svc := NewAnalysisService(client, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	var gotErr error
+	go func() {
+		_, gotErr = svc.Analyze(ctx, testServerURL(srv, "/cancel-me.mp4"))
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+		if !errors.Is(gotErr, context.Canceled) {
+			t.Errorf("expected context.Canceled, got %v", gotErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Analyze did not respect cancel for direct media")
+	}
+}
+
+func TestService_Analyze_DirectMediaWithTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(10 * time.Second)
+		w.Header().Set("Content-Type", "video/mp4")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := makeClientWithTrusted("localhost")
+	svc := NewAnalysisService(client, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	_, err := svc.Analyze(ctx, testServerURL(srv, "/slow.mp4"))
+	if err == nil {
+		t.Fatal("expected timeout error for slow direct media, got nil")
+	}
 }

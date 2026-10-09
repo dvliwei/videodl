@@ -49,12 +49,16 @@ func NewApp() *App {
 
 	app := &App{
 		analyzer:        analyzer.NewAnalysisService(safeClient, invoker),
-		manager:         download.NewManager(download.ManagerConfig{}),
 		settings:        settings.NewSettings(),
 		invoker:         invoker,
 		analysisResults: make(map[string]*media.AnalysisResult),
 		analysisCancel:  make(map[string]context.CancelFunc),
 	}
+
+	app.manager = download.NewManager(download.ManagerConfig{
+		Invoker:  invoker,
+		Resolver: app,
+	})
 
 	app.manager.SetEventCallback(app.emitTaskEvent)
 
@@ -99,6 +103,45 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.manager != nil {
 		_ = a.manager.Close()
 	}
+}
+
+// --- download.MediaSourceResolver ---
+
+func (a *App) Resolve(analysisID, mediaID, variantID string) (*download.MediaSource, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	result, ok := a.analysisResults[analysisID]
+	if !ok {
+		return nil, fmt.Errorf("analysis session %q not found", analysisID)
+	}
+
+	var candidate *media.MediaCandidate
+	for i := range result.Candidates {
+		if result.Candidates[i].ID == mediaID {
+			candidate = &result.Candidates[i]
+			break
+		}
+	}
+	if candidate == nil {
+		return nil, fmt.Errorf("media %q not found in analysis %q", mediaID, analysisID)
+	}
+
+	inputURL := candidate.InternalSourceURL
+	if variantID != "" {
+		if sub, ok := candidate.InternalVariantManifests[variantID]; ok && sub != "" {
+			inputURL = sub
+		}
+	}
+	if inputURL == "" {
+		return nil, fmt.Errorf("candidate %q has no internal source URL", mediaID)
+	}
+
+	return &download.MediaSource{
+		InputURL:        inputURL,
+		SourceType:      candidate.SourceType,
+		DurationSeconds: candidate.DurationSeconds,
+	}, nil
 }
 
 // --- event bridges ---

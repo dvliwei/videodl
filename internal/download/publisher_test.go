@@ -2,8 +2,10 @@ package download
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -319,13 +321,9 @@ func TestManager_Publish_OverwritePolicy(t *testing.T) {
 	target := filepath.Join(outputDir, "video.mp4")
 	os.WriteFile(target, []byte("old"), 0o644)
 
-	m := NewManager(ManagerConfig{
-		MaxConcurrent:   2,
-		MaxQueueSize:    10,
-		MaxAttempts:     3,
-		BaseTempDir:     tmp,
-		PublisherConfig: PublisherConfig{OverwritePolicy: OverwriteAlways},
-	})
+	cfg := fakeManagerConfig(t, tmp)
+	cfg.PublisherConfig = PublisherConfig{OverwritePolicy: OverwriteAlways}
+	m := NewManager(cfg)
 	defer m.Close()
 
 	req := newDownloadRequest("1")
@@ -366,13 +364,9 @@ func TestManager_Publish_SkipPolicy(t *testing.T) {
 	target := filepath.Join(outputDir, "video.mp4")
 	os.WriteFile(target, []byte("original content"), 0o644)
 
-	m := NewManager(ManagerConfig{
-		MaxConcurrent:   2,
-		MaxQueueSize:    10,
-		MaxAttempts:     3,
-		BaseTempDir:     tmp,
-		PublisherConfig: PublisherConfig{OverwritePolicy: OverwriteNever},
-	})
+	cfg := fakeManagerConfig(t, tmp)
+	cfg.PublisherConfig = PublisherConfig{OverwritePolicy: OverwriteNever}
+	m := NewManager(cfg)
 	defer m.Close()
 
 	req := newDownloadRequest("1")
@@ -413,12 +407,9 @@ func TestManager_Publish_SkipPolicy(t *testing.T) {
 func TestManager_Publish_ResidualTempFileCleanupOnFailure(t *testing.T) {
 	tmp := t.TempDir()
 
-	m := NewManager(ManagerConfig{
-		MaxConcurrent: 2,
-		MaxQueueSize:  10,
-		MaxAttempts:   1,
-		BaseTempDir:   tmp,
-	})
+	cfg := fakeManagerConfig(t, tmp)
+	cfg.MaxAttempts = 1
+	m := NewManager(cfg)
 	defer m.Close()
 
 	req := newDownloadRequest("1")
@@ -453,12 +444,8 @@ func TestManager_Publish_ResidualTempFileCleanupOnFailure(t *testing.T) {
 func TestManager_Retry_UsesNewTempDir(t *testing.T) {
 	tmp := t.TempDir()
 
-	m := NewManager(ManagerConfig{
-		MaxConcurrent: 2,
-		MaxQueueSize:  10,
-		MaxAttempts:   3,
-		BaseTempDir:   tmp,
-	})
+	cfg := fakeManagerConfig(t, tmp)
+	m := NewManager(cfg)
 	defer m.Close()
 
 	req := newDownloadRequest("1")
@@ -514,12 +501,9 @@ func TestManager_CompletedFileNotDeletedOnRetry(t *testing.T) {
 	outputDir := filepath.Join(tmp, "outputs")
 	os.MkdirAll(outputDir, 0o755)
 
-	m := NewManager(ManagerConfig{
-		MaxConcurrent: 2,
-		MaxQueueSize:  10,
-		MaxAttempts:   5,
-		BaseTempDir:   tmp,
-	})
+	cfg := fakeManagerConfig(t, tmp)
+	cfg.MaxAttempts = 5
+	m := NewManager(cfg)
 	defer m.Close()
 
 	req := newDownloadRequest("1")
@@ -586,6 +570,247 @@ func TestPublisher_ValidateAndCopy_FullPipeline(t *testing.T) {
 	data, _ := os.ReadFile(target)
 	if string(data) != "valid video content" {
 		t.Errorf("content mismatch: %q", data)
+	}
+}
+
+func TestPublisher_Publish_OverwriteAlways_EmptySource_PreservesOriginal(t *testing.T) {
+	dir := t.TempDir()
+
+	target := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(target, []byte("existing good content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	staging := filepath.Join(dir, "staging.part")
+	if err := os.WriteFile(staging, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := NewPublisher(PublisherConfig{OverwritePolicy: OverwriteAlways})
+	_, err := p.Publish(staging, target)
+	if err == nil {
+		t.Fatal("expected error for empty source")
+	}
+
+	data, _ := os.ReadFile(target)
+	if string(data) != "existing good content" {
+		t.Errorf("original file must be preserved after failed overwrite publish, got %q", data)
+	}
+}
+
+func TestPublisher_Publish_OverwriteAlways_SourceMissing_PreservesOriginal(t *testing.T) {
+	dir := t.TempDir()
+
+	target := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(target, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := NewPublisher(PublisherConfig{OverwritePolicy: OverwriteAlways})
+	_, err := p.Publish(filepath.Join(dir, "missing.part"), target)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	data, _ := os.ReadFile(target)
+	if string(data) != "original" {
+		t.Error("original file must survive when source missing")
+	}
+}
+
+func TestPublisher_Publish_OverwriteAlways_ValidSource_Replaces(t *testing.T) {
+	dir := t.TempDir()
+
+	target := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(target, []byte("old content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	staging := filepath.Join(dir, "staging.part")
+	if err := os.WriteFile(staging, []byte("new content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := NewPublisher(PublisherConfig{OverwritePolicy: OverwriteAlways})
+	resolved, err := p.Publish(staging, target)
+	if err != nil {
+		t.Fatalf("Publish failed: %v", err)
+	}
+	if resolved != target {
+		t.Errorf("resolved = %q, want %q", resolved, target)
+	}
+
+	data, _ := os.ReadFile(target)
+	if string(data) != "new content" {
+		t.Errorf("target = %q, want new content", data)
+	}
+
+	if _, err := os.Stat(staging); !os.IsNotExist(err) {
+		t.Error("staging file should be removed after publish")
+	}
+}
+
+func TestPublisher_ConcurrentAutoRename_UniquePaths(t *testing.T) {
+	dir := t.TempDir()
+
+	target := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(target, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 10
+	var wg sync.WaitGroup
+	results := make([]string, n)
+	errs := make([]error, n)
+
+	p := NewPublisher(DefaultPublisherConfig())
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			staging := filepath.Join(dir, fmt.Sprintf("staging_%d.part", idx))
+			if err := os.WriteFile(staging, []byte(fmt.Sprintf("content-%d", idx)), 0o644); err != nil {
+				errs[idx] = err
+				return
+			}
+
+			resolved, err := p.Publish(staging, target)
+			results[idx] = resolved
+			errs[idx] = err
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: %v", i, err)
+		}
+	}
+
+	seen := make(map[string]bool)
+	for _, r := range results {
+		if r == "" {
+			continue
+		}
+		if seen[r] {
+			t.Errorf("duplicate resolved path: %s", r)
+		}
+		seen[r] = true
+	}
+
+	for path := range seen {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected file %s to exist: %v", path, err)
+		}
+	}
+
+	if len(seen) != n {
+		t.Errorf("want %d unique paths, got %d", n, len(seen))
+	}
+
+	orig, _ := os.ReadFile(target)
+	if string(orig) != "original" {
+		t.Error("original file must remain untouched during concurrent auto-rename")
+	}
+}
+
+func TestPublisher_Publish_CrossDevice_StagingDifferentDir(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+
+	staging := filepath.Join(dirA, "staging.part")
+	if err := os.WriteFile(staging, []byte("content from different dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(dirB, "video.mp4")
+
+	p := NewPublisher(DefaultPublisherConfig())
+	resolved, err := p.Publish(staging, target)
+	if err != nil {
+		t.Fatalf("Publish across dirs failed: %v", err)
+	}
+	if resolved != target {
+		t.Errorf("resolved = %q, want %q", resolved, target)
+	}
+
+	data, _ := os.ReadFile(target)
+	if string(data) != "content from different dir" {
+		t.Errorf("content = %q", data)
+	}
+}
+
+func TestPublisher_Publish_OverwriteAlways_CopyFailure_PreservesOriginal(t *testing.T) {
+	dir := t.TempDir()
+
+	target := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(target, []byte("good original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "readonly"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(filepath.Join(dir, "readonly"))
+
+	staging := filepath.Join(dir, "readonly", "bad.part")
+	if err := os.WriteFile(staging, []byte("new content"), 0o644); err != nil {
+		t.Skip("could not set up readonly source, skipping")
+	}
+
+	p := NewPublisher(PublisherConfig{OverwritePolicy: OverwriteAlways})
+	_, _ = p.Publish(staging, target)
+
+	data, _ := os.ReadFile(target)
+	if string(data) != "good original" {
+		t.Errorf("original must remain intact, got %q", data)
+	}
+}
+
+func TestValidateAndCopy_NeverRemovesSource(t *testing.T) {
+	dir := t.TempDir()
+
+	staging := filepath.Join(dir, "staging.part")
+	if err := os.WriteFile(staging, []byte("kept"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(dir, "out.mp4")
+
+	p := NewPublisher(DefaultPublisherConfig())
+	if _, err := p.ValidateAndCopy(staging, target); err != nil {
+		t.Fatalf("ValidateAndCopy failed: %v", err)
+	}
+
+	if _, err := os.Stat(staging); err != nil {
+		t.Errorf("source must still exist after ValidateAndCopy: %v", err)
+	}
+
+	data, _ := os.ReadFile(target)
+	if string(data) != "kept" {
+		t.Errorf("target content = %q", data)
+	}
+}
+
+func TestValidateAndCopy_EmptySource_Rejected(t *testing.T) {
+	dir := t.TempDir()
+
+	staging := filepath.Join(dir, "staging.part")
+	if err := os.WriteFile(staging, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(dir, "out.mp4")
+	p := NewPublisher(DefaultPublisherConfig())
+	_, err := p.ValidateAndCopy(staging, target)
+	if err == nil {
+		t.Fatal("expected error for empty source")
+	}
+
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Error("empty source must not publish")
 	}
 }
 

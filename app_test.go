@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,9 +21,9 @@ import (
 func TestNewApp_EventsBoundOnce(t *testing.T) {
 	app := NewApp()
 
-	var callCount int
+	var callCount atomic.Int64
 	app.manager.SetEventCallback(func(evt media.TaskEvent) {
-		callCount++
+		callCount.Add(1)
 	})
 
 	app.manager.Create(media.DownloadRequest{
@@ -38,7 +39,7 @@ func TestNewApp_EventsBoundOnce(t *testing.T) {
 		total++
 		_ = snap
 	}
-	_ = callCount
+	_ = callCount.Load()
 	_ = total
 }
 

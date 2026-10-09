@@ -3,24 +3,132 @@ package download
 import (
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"videodl/internal/ffmpeg"
 	"videodl/internal/media"
 )
+
+func writeStubScript(t *testing.T, dir, name, script string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	s := script
+	if runtime.GOOS == "windows" {
+		s = "@echo off\r\n" + s
+	}
+	if err := os.WriteFile(path, []byte(s), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(path, 0o755)
+	}
+	return path
+}
+
+type stubResolver struct{}
+
+func (s *stubResolver) Resolve(analysisID, mediaID, variantID string) (*MediaSource, error) {
+	dur := 10.0
+	return &MediaSource{
+		InputURL:        "https://example.com/stub/" + mediaID,
+		SourceType:      media.SourceDirect,
+		DurationSeconds: &dur,
+	}, nil
+}
+
+func stubFFmpegSuccessScript() string {
+	return `#!/bin/sh
+# Emulates stream-copy download OR local-file transcode.
+# Output path is always the last argument.
+out="${!#}"
+have_file=""
+for a in "$@"; do
+  if [ -f "$a" ] && [ "$a" != "$out" ]; then
+    have_file="$a"
+    break
+  fi
+done
+
+# Emit progress markers and sleep so Snapshot-polling tests observe the phase.
+for i in 1000000 2000000 3000000; do
+  echo "out_time_us=$i"
+  echo "progress=continue"
+  sleep 0.01
+done
+echo "out_time_us=3000000"
+echo "progress=end"
+
+if [ -n "$have_file" ]; then
+  cat "$have_file" > "$out"
+  echo "stub ffmpeg appended transcode header" >> "$out"
+else
+  echo "stub ffmpeg output data for test (stream copy)" > "$out"
+fi
+exit 0
+`
+}
+
+func stubFFmpegFailScript() string {
+	return `#!/bin/sh
+echo "ffmpeg error: something failed" >&2
+exit 2
+`
+}
+
+func stubFFmpegHangingScript() string {
+	return `#!/bin/sh
+sleep 30
+exit 0
+`
+}
 
 func newTestManager(t *testing.T) (*Manager, string) {
 	t.Helper()
 	tmp := t.TempDir()
-	m := NewManager(ManagerConfig{
+	cfg := fakeManagerConfig(t, tmp)
+	return NewManager(cfg), tmp
+}
+
+func newTestManagerWithScripts(t *testing.T, ffmpegBody string) (*Manager, string) {
+	t.Helper()
+	tmp := t.TempDir()
+	cfg := fakeManagerConfigWithScript(t, tmp, ffmpegBody)
+	return NewManager(cfg), tmp
+}
+
+func fakeManagerConfig(t *testing.T, tmp string) ManagerConfig {
+	t.Helper()
+	return fakeManagerConfigWithScript(t, tmp, stubFFmpegSuccessScript())
+}
+
+func fakeManagerConfigWithScript(t *testing.T, tmp, ffmpegBody string) ManagerConfig {
+	t.Helper()
+	binDir, err := os.MkdirTemp("", "videodl_fakebin_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(binDir, 0o755)
+	ffmpegScript := writeStubScript(t, binDir, "ffmpeg", ffmpegBody)
+	ffprobeScript := writeStubScript(t, binDir, "ffprobe", "#!/bin/sh\nexit 0\n")
+
+	invoker := ffmpeg.NewInvoker(ffmpeg.ToolPaths{
+		FFmpeg:  ffmpegScript,
+		FFprobe: ffprobeScript,
+	})
+
+	return ManagerConfig{
 		MaxConcurrent: 2,
 		MaxQueueSize:  10,
 		MaxAttempts:   3,
 		BaseTempDir:   tmp,
-	})
-	return m, tmp
+		Invoker:       invoker,
+		Resolver:      &stubResolver{},
+	}
 }
 
 func newDownloadRequest(id string) media.DownloadRequest {

@@ -4,11 +4,16 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"videodl/internal/ffmpeg"
 	"videodl/internal/media"
 	"videodl/internal/settings"
 )
@@ -19,12 +24,31 @@ const (
 	DefaultAttemptLimit  = 5
 )
 
+// MediaSource is the fully resolved input description for a download pipeline.
+// The Manager never trusts frontend-supplied URLs — the Resolver (owned by the
+// App layer) pulls the real URL from the analysis session, which is why this
+// type lives in download and not in the frontend-facing media package.
+type MediaSource struct {
+	InputURL        string
+	SourceType      media.SourceType
+	DurationSeconds *float64
+}
+
+// MediaSourceResolver turns opaque frontend IDs into a MediaSource. App
+// implements this using its analysisResults cache; unit tests inject a stub.
+type MediaSourceResolver interface {
+	Resolve(analysisID, mediaID, variantID string) (*MediaSource, error)
+}
+
 type ManagerConfig struct {
 	MaxConcurrent   int
 	MaxQueueSize    int
 	MaxAttempts     int
 	BaseTempDir     string
 	PublisherConfig PublisherConfig
+
+	Invoker  *ffmpeg.Invoker
+	Resolver MediaSourceResolver
 }
 
 func (c ManagerConfig) withDefaults() ManagerConfig {
@@ -119,6 +143,10 @@ func (t *Task) Snapshot() media.DownloadTask {
 
 func (t *Task) setState(s media.TaskState, phase string) {
 	t.mu.Lock()
+	if t.state == media.TaskCompleted || t.state == media.TaskCanceled || t.state == media.TaskFailed {
+		t.mu.Unlock()
+		return
+	}
 	changed := t.state != s
 	t.state = s
 	if phase != "" {
@@ -615,15 +643,6 @@ func (m *Manager) ensureStagingFile(task *Task, suffix string) error {
 		return newTaskError("download.staging_path", "failed to create staging path", err)
 	}
 
-	f, err := os.Create(stagingPath)
-	if err != nil {
-		return newTaskError("download.staging_create", "failed to create staging file", err)
-	}
-	f.WriteString("mock video data for ")
-	f.WriteString(task.ID())
-	f.WriteString("\n")
-	f.Close()
-
 	task.mu.Lock()
 	task.stagingFile = stagingPath
 	task.mu.Unlock()
@@ -632,62 +651,258 @@ func (m *Manager) ensureStagingFile(task *Task, suffix string) error {
 }
 
 func (m *Manager) runDownloadPhase(ctx context.Context, task *Task) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	invoker := m.cfg.Invoker
+	if invoker == nil {
+		return newTaskError("download.invoker_missing",
+			"ffmpeg invoker not configured", nil)
+	}
+
+	resolver := m.cfg.Resolver
+	if resolver == nil {
+		return newTaskError("download.resolver_missing",
+			"media source resolver not configured", nil)
+	}
+
+	task.mu.RLock()
+	req := task.Request
+	task.mu.RUnlock()
+
+	src, err := resolver.Resolve(req.AnalysisID, req.MediaID, req.VariantID)
+	if err != nil {
+		return newTaskError("download.resolve_failed",
+			fmt.Sprintf("failed to resolve media source: %v", err), err)
+	}
+	if src == nil || src.InputURL == "" {
+		return newTaskError("download.resolve_empty",
+			"resolver returned empty input URL", nil)
 	}
 
 	if err := m.ensureStagingFile(task, ".part"); err != nil {
 		return err
 	}
 
-	for i := 0; i <= 20; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		time.Sleep(10 * time.Millisecond)
-		progress := float64(i) * 5.0
-		var size int64 = 10240
-		task.updateProgress(&progress, 1024, &size)
+	task.mu.RLock()
+	outputPath := task.stagingFile
+	task.mu.RUnlock()
+
+	opts := ffmpeg.DownloadOptions{
+		InputURL:        src.InputURL,
+		SourceType:      src.SourceType,
+		OutputPath:      outputPath,
+		Profile:         media.ProfileOriginal,
+		DurationSeconds: src.DurationSeconds,
 	}
+
+	m.log("task %s: downloading %s -> %s",
+		task.ID(), src.InputURL, outputPath)
+
+	sink := &taskProgressSink{task: task}
+
+	result, runErr := ffmpeg.RunFFmpegDownload(ctx, invoker, opts, sink)
+	if runErr != nil {
+		_ = os.Remove(outputPath)
+		return m.classifyFFmpegError(runErr, result)
+	}
+
+	if result == nil {
+		_ = os.Remove(outputPath)
+		return newTaskError("download.ffmpeg_nil_result",
+			"ffmpeg returned nil result without error", nil)
+	}
+
+	if _, statErr := os.Stat(outputPath); statErr != nil {
+		return newTaskError("download.output_missing",
+			fmt.Sprintf("ffmpeg finished but output file missing: %v", statErr), statErr)
+	}
+
+	zeroProgress := 0.0
+	speedZero := int64(0)
+	task.updateProgress(&zeroProgress, speedZero, nil)
+
 	return nil
 }
 
 func (m *Manager) runMergePhase(ctx context.Context, task *Task) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	for i := 0; i < 3; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		time.Sleep(10 * time.Millisecond)
+	task.mu.RLock()
+	staging := task.stagingFile
+	task.mu.RUnlock()
+	if staging == "" {
+		return newTaskError("download.merge.no_staging", "no staging file before merge", nil)
+	}
+	if _, err := os.Stat(staging); err != nil {
+		return newTaskError("download.merge.staging_missing",
+			fmt.Sprintf("staging file missing before merge: %v", err), err)
 	}
 	return nil
 }
 
 func (m *Manager) runTranscodePhase(ctx context.Context, task *Task) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	for i := 0; i < 3; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		time.Sleep(10 * time.Millisecond)
+
+	invoker := m.cfg.Invoker
+	if invoker == nil {
+		return newTaskError("download.invoker_missing",
+			"ffmpeg invoker not configured", nil)
 	}
+
+	task.mu.RLock()
+	profile := task.Profile
+	srcStaging := task.stagingFile
+	task.mu.RUnlock()
+
+	if srcStaging == "" {
+		return newTaskError("download.transcode.no_staging", "no staging file before transcode", nil)
+	}
+	if _, statErr := os.Stat(srcStaging); statErr != nil {
+		return newTaskError("download.transcode.staging_missing",
+			fmt.Sprintf("staging file missing before transcode: %v", statErr), statErr)
+	}
+
+	outSuffix := outputSuffixForProfile(profile)
+	transcodePath, err := settings.UniqueTempPath(task.tempDirectory(), "staging_tc_", outSuffix)
+	if err != nil {
+		return newTaskError("download.transcode.path", "failed to create transcode staging path", err)
+	}
+
+	tcOpts := ffmpeg.TranscodeOptions{
+		InputPath:  srcStaging,
+		OutputPath: transcodePath,
+		Profile:    profile,
+	}
+
+	sink := &taskProgressSink{task: task}
+	result, runErr := ffmpeg.RunFFmpegTranscode(ctx, invoker, tcOpts, sink)
+	if runErr != nil {
+		_ = os.Remove(transcodePath)
+		return m.classifyFFmpegError(runErr, result)
+	}
+
+	if _, statErr := os.Stat(transcodePath); statErr != nil {
+		return newTaskError("download.transcode.output_missing",
+			fmt.Sprintf("transcode finished but output missing: %v", statErr), statErr)
+	}
+
+	if err := os.Remove(srcStaging); err != nil {
+		m.log("task %s: could not remove pre-transcode staging %s: %v",
+			task.ID(), srcStaging, err)
+	}
+
+	task.mu.Lock()
+	task.stagingFile = transcodePath
+	task.mu.Unlock()
+
+	zeroProgress := 0.0
+	speedZero := int64(0)
+	task.updateProgress(&zeroProgress, speedZero, nil)
+
 	return nil
+}
+
+func (m *Manager) classifyFFmpegError(runErr error, result *ffmpeg.DownloadResult) error {
+	if errors.Is(runErr, context.Canceled) {
+		return runErr
+	}
+	if errors.Is(runErr, context.DeadlineExceeded) {
+		return runErr
+	}
+	pe, ok := runErr.(*ffmpeg.ProcessError)
+	if ok {
+		msg := pe.Error()
+		if pe.StderrTail != "" {
+			msg = msg + " | " + pe.StderrTail
+		}
+		return newTaskError("download.ffmpeg_failed", msg, runErr)
+	}
+	if runErr != nil {
+		return newTaskError("download.ffmpeg_failed", runErr.Error(), runErr)
+	}
+	return newTaskError("download.ffmpeg_unknown", "ffmpeg exited with failure", nil)
+}
+
+type taskProgressSink struct {
+	task *Task
+}
+
+func (s *taskProgressSink) OnProgress(p ffmpeg.DownloadProgress) {
+	var progress *float64
+	if p.Percentage != nil {
+		progress = p.Percentage
+	} else if p.TotalUs > 0 && p.OutTimeUs > 0 {
+		pct := float64(p.OutTimeUs) / float64(p.TotalUs) * 100
+		if pct > 100 {
+			pct = 100
+		}
+		progress = &pct
+	}
+
+	var speed int64
+	if p.SpeedQ != "" {
+		speed = parseSpeedQ(p.SpeedQ)
+	}
+
+	var size *int64
+	if p.SizeBytes > 0 {
+		sizeVal := p.SizeBytes
+		size = &sizeVal
+	}
+
+	s.task.updateProgress(progress, speed, size)
+}
+
+func parseSpeedQ(q string) int64 {
+	q = strings.TrimSpace(q)
+	if q == "" || strings.EqualFold(q, "N/A") {
+		return 0
+	}
+	var numStr string
+	for i := 0; i < len(q); i++ {
+		c := q[i]
+		if (c >= '0' && c <= '9') || c == '.' || c == '-' {
+			numStr += string(c)
+		} else {
+			break
+		}
+	}
+	if numStr == "" {
+		return 0
+	}
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0
+	}
+	suffix := strings.ToLower(strings.TrimSpace(q[len(numStr):]))
+	switch suffix {
+	case "k", "kb", "k/s":
+		return int64(val * 1024)
+	case "m", "mb", "m/s":
+		return int64(val * 1024 * 1024)
+	case "g", "gb", "g/s":
+		return int64(val * 1024 * 1024 * 1024)
+	case "b", "b/s", "":
+		return int64(val)
+	default:
+		return int64(val)
+	}
+}
+
+func outputSuffixForProfile(profile media.DownloadProfile) string {
+	if profile == "" {
+		profile = media.ProfileOriginal
+	}
+	suffix := ffmpeg.PresetOutputExtension(profile)
+	if suffix == "" {
+		suffix = ".mp4"
+	}
+	return suffix
 }
 
 func (m *Manager) runFinishPhase(ctx context.Context, task *Task) error {
