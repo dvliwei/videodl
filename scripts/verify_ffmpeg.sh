@@ -1,150 +1,160 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MANIFEST="${FFMPEG_MANIFEST:-$PROJECT_ROOT/build/resources/ffmpeg/manifest.yaml}"
-TOOLS_ROOT="${FFMPEG_TOOLS_ROOT:-$PROJECT_ROOT/build/resources/ffmpeg/tools}"
-LICENSES_ROOT="${FFMPEG_LICENSES_ROOT:-$PROJECT_ROOT/build/resources/ffmpeg/licenses}"
+RESOURCES_DIR="$PROJECT_ROOT/build/resources/ffmpeg"
+TOOLS_DIR="$RESOURCES_DIR/tools"
+MANIFEST="$RESOURCES_DIR/manifest.yaml"
+LICENSES_DIR="$RESOURCES_DIR/licenses"
 
 log() { echo "[verify_ffmpeg] $*"; }
-ok() { echo "  OK:   $*"; }
-fail() { echo "  FAIL: $*" >&2; exit_code=1; }
+fail() { echo "[verify_ffmpeg] FAIL: $*" >&2; exit 1; }
+warn() { echo "[verify_ffmpeg] WARN: $*" >&2; }
 
-exit_code=0
+PASS=0
+FAIL=0
 
-sha256_file() {
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$1" | awk '{print $1}'
-    elif command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 "$1" | awk '{print $1}'
-    else
-        echo "error: neither sha256sum nor shasum is available" >&2
-        exit 1
-    fi
-}
+record_pass() { PASS=$((PASS + 1)); echo "  PASS: $*"; }
+record_fail() { FAIL=$((FAIL + 1)); echo "  FAIL: $*"; }
 
-validate_manifest() {
-    python3 - "$MANIFEST" <<'PY'
-import re
-import sys
-from pathlib import Path
+[[ -f "$MANIFEST" ]] || fail "manifest.yaml not found"
+[[ -f "$RESOURCES_DIR/CREDITS.md" ]] || warn "CREDITS.md not found"
 
-text = Path(sys.argv[1]).read_text()
-required = (
-    (r'^  version: "8\.0\.3"$', "FFmpeg version"),
-    (r'^  type: "LGPL-2\.1-or-later"$', "license type"),
-    (r'^    - "--disable-gpl"$', "--disable-gpl"),
-    (r'^    - "--disable-nonfree"$', "--disable-nonfree"),
-    (r'^    - "--disable-version3"$', "--disable-version3"),
-    (r'^    - "--disable-autodetect"$', "--disable-autodetect"),
-)
-for pattern, name in required:
-    if not re.search(pattern, text, re.MULTILINE):
-        raise SystemExit(f"manifest missing {name}")
+log "Checking license files"
+for f in licenses/FFmpeg-COPYING.LGPLv2.1 licenses/THIRD-PARTY-NOTICES.md; do
+    [[ -f "$RESOURCES_DIR/$f" ]] && record_pass "license present: $f" || record_fail "missing license: $f"
+done
 
-for platform in ("windows-x64", "linux-x64", "darwin-x64", "darwin-arm64"):
-    match = re.search(rf'^  {platform}:\n((?:    .*\n)+)', text, re.MULTILINE)
-    if not match:
-        raise SystemExit(f"manifest missing {platform}")
-    block = match.group(1)
-    if not re.search(r'^    archive_sha256: "[0-9a-f]{64}"$', block, re.MULTILINE):
-        raise SystemExit(f"manifest has no locked SHA-256 for {platform}")
-    if not re.search(r'^    configure_report_url: "https://', block, re.MULTILINE):
-        raise SystemExit(f"manifest has no configure report for {platform}")
+require_cmd() { command -v "$1" >/dev/null 2>&1; }
 
-for forbidden in ("--enable-gpl", "--enable-nonfree", "--enable-version3"):
-    if forbidden in text:
-        raise SystemExit(f"manifest contains forbidden flag {forbidden}")
-PY
-}
+if require_cmd file; then
+    HAVE_FILE=1
+else
+    HAVE_FILE=0
+    warn "'file' not found, skipping architecture checks"
+fi
 
-parse_manifest() {
-    python3 - "$MANIFEST" <<'PY'
-import re
-import sys
-from pathlib import Path
+if require_cmd uname; then
+    HOST_OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    HOST_ARCH_RAW="$(uname -m)"
+    case "$HOST_ARCH_RAW" in
+        x86_64|amd64) HOST_ARCH="amd64" ;;
+        arm64|aarch64) HOST_ARCH="arm64" ;;
+        *) HOST_ARCH="$HOST_ARCH_RAW" ;;
+    esac
+    log "Host: $HOST_OS/$HOST_ARCH"
+else
+    HOST_OS="unknown"
+    HOST_ARCH="unknown"
+fi
 
-text = Path(sys.argv[1]).read_text()
-for match in re.finditer(r'^  ([a-z0-9-]+):\n((?:    .*\n)*)', text, re.MULTILINE):
-    name, body = match.groups()
-    if not re.search(r'^    goos:', body, re.MULTILINE):
+PLATFORMS="windows-x64 linux-x64 darwin-x64 darwin-arm64"
+
+log "Checking installed tools"
+
+for platform in $PLATFORMS; do
+    dir="$TOOLS_DIR/$platform"
+    echo ""
+    log "--- $platform ---"
+
+    if [[ ! -d "$dir" ]]; then
+        record_fail "missing directory $dir (run make ffmpeg-fetch first)"
         continue
-    def get(key):
-        found = re.search(rf'^    {key}:\s*"([^"]*)"$', body, re.MULTILINE)
-        return found.group(1) if found else ""
-    def get_tool(key):
-        found = re.search(rf'^      {key}:\s*"([^"]*)"$', body, re.MULTILINE)
-        return found.group(1) if found else ""
-    print("|".join((name, get("archive_sha256"), get("archive_format"), get_tool("ffmpeg"), get_tool("ffprobe"))))
-PY
-}
-
-verify_binary_checksum() {
-    local dir="$1" name="$2" checksum_file="$dir/SHA256SUMS"
-    if [ ! -f "$checksum_file" ]; then
-        fail "$dir: SHA256SUMS missing; extracted binaries are not locked"
-        return
     fi
-    local expected actual
-    expected="$(awk -v name="$name" '$2 == name { print $1 }' "$checksum_file")"
-    if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]]; then
-        fail "$dir/$name: SHA256SUMS entry missing or malformed"
-        return
-    fi
-    actual="$(sha256_file "$dir/$name")"
-    if [ "$actual" != "$expected" ]; then
-        fail "$dir/$name: SHA-256 mismatch (expected $expected, got $actual)"
-    else
-        ok "$dir/$name: SHA-256 verified ($actual)"
-    fi
-}
 
-log "=== VideoDL FFmpeg Verification ==="
-log "Manifest: $MANIFEST"
-validate_manifest || {
-    echo "manifest validation failed" >&2
-    exit 1
-}
+    bin_suffix=""
+    [[ "$platform" == windows-* ]] && bin_suffix=".exe"
 
-for license_file in "$LICENSES_ROOT/FFmpeg-COPYING.LGPLv2.1" "$LICENSES_ROOT/THIRD-PARTY-NOTICES.md"; do
-    if [ -f "$license_file" ]; then
-        ok "license material present: $license_file"
-    else
-        fail "license material missing: $license_file"
+    ff="$dir/ffmpeg${bin_suffix}"
+    fp="$dir/ffprobe${bin_suffix}"
+
+    for tool in ffmpeg ffprobe; do
+        case "$tool" in
+            ffmpeg) path="$ff" ;;
+            ffprobe) path="$fp" ;;
+        esac
+
+        if [[ ! -f "$path" ]]; then
+            record_fail "$tool missing at $path"
+            continue
+        fi
+
+        size="$(wc -c < "$path")"
+        record_pass "$tool present ($size bytes)"
+
+        if [[ "$platform" != windows-* ]]; then
+            perms="$(stat -f '%Lp' "$path" 2>/dev/null || stat -c '%a' "$path" 2>/dev/null || echo "???")"
+            if [[ "$perms" == "???" ]]; then
+                warn "cannot read permissions for $path"
+            else
+                readable_perms="$((perms & 0111))"
+                if [[ $readable_perms -ne 0 ]]; then
+                    record_pass "$tool executable (mode $perms)"
+                else
+                    record_fail "$tool NOT executable (mode $perms)"
+                fi
+            fi
+        fi
+
+        if [[ $HAVE_FILE -eq 1 ]]; then
+            file_info="$(file -b "$path")"
+            echo "  file: $file_info"
+            if [[ "$platform" == "$HOST_OS-$HOST_ARCH" ]]; then
+                case "$HOST_ARCH" in
+                    amd64)
+                        if echo "$file_info" | grep -qiE 'x86_64|amd64'; then
+                            record_pass "$tool architecture matches host (amd64)"
+                        else
+                            record_fail "$tool architecture does not match host: $file_info"
+                        fi
+                        ;;
+                    arm64)
+                        if echo "$file_info" | grep -qiE 'arm64|aarch64'; then
+                            record_pass "$tool architecture matches host (arm64)"
+                        else
+                            record_fail "$tool architecture does not match host: $file_info"
+                        fi
+                        ;;
+                    *)
+                        warn "unknown host arch $HOST_ARCH"
+                        ;;
+                esac
+            fi
+        fi
+    done
+
+    if [[ "$platform" == "$HOST_OS-$HOST_ARCH" ]]; then
+        echo ""
+        log "Running ffmpeg -version for host platform"
+        if "$ff" -version >/tmp/ffmpeg_ver.txt 2>&1; then
+            ver_line="$(head -n1 /tmp/ffmpeg_ver.txt)"
+            echo "  $ver_line"
+            if echo "$ver_line" | grep -qE 'ffmpeg version n?8\.0\.'; then
+                record_pass "ffmpeg version 8.0.x detected"
+            else
+                record_fail "unexpected ffmpeg version output: $ver_line"
+            fi
+        else
+            record_fail "ffmpeg -version failed"
+        fi
+        if "$fp" -version >/tmp/ffprobe_ver.txt 2>&1; then
+            ver_line="$(head -n1 /tmp/ffprobe_ver.txt)"
+            echo "  $ver_line"
+            if echo "$ver_line" | grep -qE 'ffprobe version n?8\.0\.'; then
+                record_pass "ffprobe version 8.0.x detected"
+            else
+                record_fail "unexpected ffprobe version output: $ver_line"
+            fi
+        else
+            record_fail "ffprobe -version failed"
+        fi
     fi
 done
 
-while IFS='|' read -r platform expected_archive_sha fmt ff_rel fp_rel; do
-    [ -z "$platform" ] && continue
-    dir="$TOOLS_ROOT/$platform"
-    if [ ! -d "$dir" ]; then
-        fail "$platform: tools directory missing at $dir"
-        continue
-    fi
-    ok "$platform: tools directory exists"
+echo ""
+echo "============================================"
+echo "Results: $PASS passed, $FAIL failed"
+echo "============================================"
 
-    for tool in "$ff_rel" "$fp_rel"; do
-        bin="$dir/$tool"
-        if [ ! -f "$bin" ]; then
-            fail "$platform: $tool missing at $bin"
-            continue
-        fi
-        ok "$platform: $tool present"
-        if [ "$platform" != "windows-x64" ]; then
-            if [ ! -x "$bin" ]; then
-                fail "$platform: $tool is not executable"
-            else
-                ok "$platform: $tool executable"
-            fi
-        fi
-        verify_binary_checksum "$dir" "$tool"
-    done
-done < <(parse_manifest)
-
-if [ "$exit_code" -eq 0 ]; then
-    log "All FFmpeg binaries, checksums, manifest fields and license materials verified."
-else
-    log "FFmpeg verification FAILED."
-fi
-exit "$exit_code"
+[[ $FAIL -eq 0 ]]

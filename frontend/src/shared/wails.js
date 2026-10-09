@@ -55,6 +55,14 @@ export function saveAs(defaultName, dirHint) {
   return App.SaveAs(defaultName, dirHint)
 }
 
+export function openPath(path) {
+  return App.OpenPath(path)
+}
+
+export function openContainingFolder(path) {
+  return App.OpenContainingFolder(path)
+}
+
 export function onAnalysisUpdate(callback) {
   if (analysisListener) {
     EventsOff(EVENT_ANALYSIS_UPDATE)
@@ -80,4 +88,3 @@ export function onTaskUpdate(callback) {
 export function isWailsAvailable() {
   return typeof window !== 'undefined' && window['go'] !== undefined
 }
-ENDOFFILE 

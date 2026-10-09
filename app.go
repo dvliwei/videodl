@@ -15,6 +15,7 @@ import (
 	"videodl/internal/download"
 	"videodl/internal/ffmpeg"
 	"videodl/internal/media"
+	"videodl/internal/openpath"
 	"videodl/internal/settings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -29,23 +30,28 @@ type App struct {
 	analyzer *analyzer.AnalysisService
 	manager  *download.Manager
 	settings *settings.Settings
+	invoker  *ffmpeg.Invoker
 
 	mu              sync.RWMutex
 	analysisResults map[string]*media.AnalysisResult
 	analysisCancel  map[string]context.CancelFunc
 }
 
-// NewApp creates an App with default internal services. It does not start the
-// download pipeline; startup() wires up the Wails runtime callbacks and
-// shutdown() tears everything down.
+// NewApp creates an App with default internal services. It probes for bundled
+// FFmpeg/FFprobe at construction time (via ResolveFromExecutable + cwd
+// fallback) and configures the analyzer with the resulting invoker. If no
+// bundled tools are available yet the invoker stays nil and the analyzer runs
+// in probe-less mode. startup() re-tries the probe so a different working
+// directory does not matter.
 func NewApp() *App {
 	safeClient := analyzer.NewSafeClient(analyzer.DefaultConfig())
-	var invoker *ffmpeg.Invoker
+	invoker := tryResolveInvoker()
 
 	app := &App{
 		analyzer:        analyzer.NewAnalysisService(safeClient, invoker),
 		manager:         download.NewManager(download.ManagerConfig{}),
 		settings:        settings.NewSettings(),
+		invoker:         invoker,
 		analysisResults: make(map[string]*media.AnalysisResult),
 		analysisCancel:  make(map[string]context.CancelFunc),
 	}
@@ -55,8 +61,38 @@ func NewApp() *App {
 	return app
 }
 
+func tryResolveInvoker() *ffmpeg.Invoker {
+	resourcesRoot, err := ffmpeg.ResolveFromExecutable()
+	if err != nil {
+		return nil
+	}
+	paths, err := ffmpeg.ResolvePaths(resourcesRoot)
+	if err != nil {
+		return nil
+	}
+	return ffmpeg.NewInvoker(paths)
+}
+
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	if a.invoker == nil {
+		if retry := tryResolveInvoker(); retry != nil {
+			a.invoker = retry
+			a.analyzer.SetInvoker(retry)
+		}
+	}
+
+	if a.invoker != nil {
+		if err := a.invoker.VerifyFFmpegVersion(ctx); err != nil {
+			println("startup: ffmpeg version check failed:", err.Error())
+		}
+		if err := a.invoker.VerifyFFprobeVersion(ctx); err != nil {
+			println("startup: ffprobe version check failed:", err.Error())
+		}
+	} else {
+		println("startup: no bundled FFmpeg found — analyzer will run without media probing")
+	}
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -381,6 +417,16 @@ func (a *App) SaveAs(defaultName string, dirHint string) (string, error) {
 		DefaultFilename:  settings.SanitizeFileName(defaultName),
 		Title:            "另存为",
 	})
+}
+
+// --- File reveal ---
+
+func (a *App) OpenPath(path string) error {
+	return openpath.OpenPath(path)
+}
+
+func (a *App) OpenContainingFolder(path string) error {
+	return openpath.RevealInFinder(path)
 }
 
 // --- helpers ---

@@ -23,6 +23,12 @@ export function formatBytes(bytes) {
   return `${val.toFixed(digits)} ${units[i]}`
 }
 
+export function formatSpeed(bytesPerSecond) {
+  if (!bytesPerSecond || bytesPerSecond <= 0) return null
+  const formatted = formatBytes(bytesPerSecond)
+  return formatted ? `${formatted}/s` : null
+}
+
 export function formatResolution(w, h) {
   if (!w || !h) return null
   return `${w}×${h}`
@@ -33,3 +39,34 @@ export function formatBandwidth(bps) {
   const mbps = bps / 1_000_000
   return `${mbps.toFixed(1)} Mbps`
 }
+
+export function formatETA(remainingBytes, bytesPerSecond) {
+  if (!remainingBytes || !bytesPerSecond || bytesPerSecond <= 0) return null
+  const seconds = remainingBytes / bytesPerSecond
+  if (seconds < 60) {
+    return `${Math.max(1, Math.round(seconds))}s`
+  }
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  if (m < 60) {
+    return `${m}m ${String(s).padStart(2, '0')}s`
+  }
+  const h = Math.floor(m / 60)
+  const rem = m % 60
+  return `${h}h ${rem}m`
+}
+
+export const TASK_STATE_LABELS = {
+  queued: '等待中',
+  preparing: '准备中',
+  downloading: '下载中',
+  merging: '封装中',
+  transcoding: '转码中',
+  completed: '已完成',
+  canceled: '已取消',
+  failed: '失败'
+}
+
+export const ACTIVE_STATES = new Set(['queued', 'preparing', 'downloading', 'merging', 'transcoding'])
+export const TERMINAL_STATES = new Set(['completed', 'canceled', 'failed'])
+export const PROGRESS_STATES = new Set(['preparing', 'downloading', 'merging', 'transcoding'])

@@ -70,6 +70,15 @@ func (s *AnalysisService) WithOptions(opts ServiceOptions) *AnalysisService {
 	return s
 }
 
+func (s *AnalysisService) SetInvoker(invoker *ffmpeg.Invoker) {
+	s.invoker = invoker
+	s.opts.FetchMediaInfo = invoker != nil
+}
+
+func (s *AnalysisService) Invoker() *ffmpeg.Invoker {
+	return s.invoker
+}
+
 func (s *AnalysisService) Analyze(ctx context.Context, rawURL string) (*media.AnalysisResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

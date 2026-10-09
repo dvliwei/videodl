@@ -19,6 +19,10 @@ export function GetTask(arg1:string):Promise<media.DownloadTask>;
 
 export function ListTasks():Promise<Array<media.DownloadTask>>;
 
+export function OpenContainingFolder(arg1:string):Promise<void>;
+
+export function OpenPath(arg1:string):Promise<void>;
+
 export function RetryDownload(arg1:string):Promise<media.DownloadTask>;
 
 export function SaveAs(arg1:string,arg2:string):Promise<string>;
