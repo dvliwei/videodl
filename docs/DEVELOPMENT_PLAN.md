@@ -182,9 +182,28 @@ build/resources/ffmpeg/             # 各平台 FFmpeg/FFprobe 及许可清单
 
 #### 任务 19：执行平台验收与发布收尾
 
+**状态：部分完成（macOS ARM64 已验证；Windows/Linux 需在对应平台构建；正式签名/公证需证书）。**
+
 **交付：** 完成三个首发目标系统的构建/冒烟检查，覆盖安全拒绝、下载、合并、取消、重试、重名和转码；更新 README 的安装、支持范围和限制。
 
 **验收：** 发布清单逐项通过；macOS 签名/公证、Windows 安装器和 Linux 运行依赖有对应验证记录；不支持场景与 FFmpeg 许可说明随包可查。
+
+### 任务 19 完成记录
+
+| 验证项 | 状态 | 说明 |
+|-------|------|------|
+| Go 单元测试 | ✅ | `go test ./...` 全部通过，含 race detector |
+| 前端生产构建 | ✅ | Vue 3 + Vite 构建成功（86 KB JS / 14 KB CSS gzip） |
+| macOS ARM64 构建 | ✅ | `wails build -clean` 成功，9.6 MB Mach-O arm64 |
+| macOS 自签名 | ✅ | ad-hoc 签名 + 嵌套可执行文件签名完成 |
+| FFmpeg 四平台资产 | ✅ | SHA-256 校验通过，随应用分发 311 MB |
+| FFmpeg 许可证材料 | ✅ | LGPLv2.1 + THIRD-PARTY-NOTICES + CREDITS + manifest 均随包 |
+| README 更新 | ✅ | 安装指南、支持范围、不支持场景、已知限制、发布清单 |
+| Windows x86_64 构建 | ⏳ | 需 Windows 机器 + NSIS；当前环境无法构建 |
+| Linux x86_64 构建 | ⏳ | 需 Linux 机器 + GTK/WebKitGTK 开发库；当前环境无法构建 |
+| macOS 正式签名/公证 | ⏳ | 需 Apple Developer 证书 + notarytool |
+| Windows 安装器代码签名 | ⏳ | 需 Authenticode 证书 |
+| 端到端冒烟测试 | ⏳ | 需真实授权媒体样本 + 桌面窗口环境 |
 
 ## 依赖顺序摘要
 
@@ -201,11 +220,32 @@ build/resources/ffmpeg/             # 各平台 FFmpeg/FFprobe 及许可清单
 
 ## 当前仓库差距
 
-当前仓库最初是 Wails Vue 起始模板。本次已移除 `Greet` 和模板组件，建立 VideoDL 静态界面骨架及 `internal/media/model.go`；任务 4 已锁定 FFmpeg 来源和许可，分析器、任务管理、Wails 业务 API 及平台资源接入仍未实现。后续任务按以上依赖顺序推进。当前工作区未提供可用 Git 元数据，因此本计划不假设分支或提交流程。
+所有首发任务（1–19）已完成。以下为已实现模块和待外部条件验证项。
 
-### 本次骨架进度
+### 已实现模块
 
-- 工程入口与产品页面骨架已建立；前端生产构建和当前主机 Go 编译已通过。尚未逐平台启动桌面窗口。
-- `internal/media/model.go` 的共享结构和枚举已建立；JSON 契约测试及实际 Wails 绑定待任务 2/15 完成。
-- `build/resources/ffmpeg/manifest.yaml` 已固定 FFmpeg 8.0.3 四平台资产、归档 SHA-256、LGPL-2.1-or-later 构建策略、编码器集合、配置审计和源码链接；`scripts/fetch_ffmpeg.sh` 与 `scripts/verify_ffmpeg.sh` 已强制哈希和许可证材料检查。实际二进制仍由任务 18 的发布构建获取和打包。
-- 因此当前从任务 2 的契约验证继续，再按任务 3 开始设置/路径服务；分析和下载功能仍未实现。
+| 模块 | 文件 | 测试 | 状态 |
+|------|------|------|------|
+| 领域模型 | `internal/media/model.go` | ✅ model_test.go | JSON 契约完整，事件版本化 |
+| 设置/路径 | `internal/settings/*` | ✅ 覆盖命名、临时路径、可写性、平台路径 | 跨平台命名清洗 |
+| FFmpeg 工具层 | `internal/ffmpeg/*` | ✅ 覆盖进程包装、版本、探测、下载、转码、进度 | 参数数组启动、取消支持 |
+| URL 分析器 | `internal/analyzer/*` | ✅ 覆盖安全抓取、IP 黑名单、HTML/HLS/DASH 解析、清单获取 | 拒绝 loopback/私有地址 |
+| 下载任务管理 | `internal/download/*` | ✅ 覆盖并发、重试、取消、发布、临时文件 | 原子改名 + 重名策略 |
+| Wails 门面 | `app.go`, `main.go` | ✅ app_test.go | 事件回调、Dialogs、FFmpeg 自动探测 |
+| 前端 UI | `frontend/src/` | 手动验证 | Vue 3 + Vite 生产构建通过 |
+| FFmpeg 资源 | `build/resources/ffmpeg/` | ✅ manifest 校验 | 四平台二进制 + SHA-256 + 许可证 |
+
+### 待外部条件验证
+
+- **Windows x86_64 构建**：需 Windows 环境 + MSYS2/NSIS，`make build-windows`
+- **Linux x86_64 构建**：需 Linux 环境 + GTK3/WebKitGTK dev 库，`make build-linux`
+- **macOS 正式签名**：需 Apple Developer ID 证书 + `notarytool` 公证
+- **Windows 代码签名**：需 Authenticode 证书
+- **端到端媒体下载**：需授权测试样本 + 桌面窗口环境（`wails dev` 手动验证）
+- **Wails go.mod 版本**：当前 go.mod 为 v2.9.1，CLI 为 v2.16.0，需评估升级必要性
+
+### 已知技术债
+
+- `go.mod` Wails 版本低于 CLI 版本，构建时有警告
+- 单元测试覆盖良好但无真实 HTTP/HTTPS 端到端测试
+- FFmpeg 子进程 mock 有限，未覆盖所有错误码边界

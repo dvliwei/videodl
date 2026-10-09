@@ -53,7 +53,7 @@ export namespace media {
 	    bandwidth?: number;
 	    hasVideo: boolean;
 	    hasAudio: boolean;
-	    audioDescription?: string;
+	    audioDescription: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new MediaVariant(source);

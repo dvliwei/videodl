@@ -52,10 +52,12 @@ func (m *memFS) CreateTemp(dir, prefix string) (*os.File, error) {
 	if !m.dirs[dir] {
 		return nil, os.ErrNotExist
 	}
-	token, _ := randomHex(4)
-	name := filepath.Join(dir, prefix+"_random_"+token)
-	m.files[name] = []byte{}
-	return &os.File{}, nil
+	f, err := os.CreateTemp("", prefix+"_random_*")
+	if err != nil {
+		return nil, err
+	}
+	m.files[f.Name()] = []byte{}
+	return f, nil
 }
 
 func (m *memFS) Remove(path string) error {

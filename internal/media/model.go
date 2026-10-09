@@ -59,7 +59,7 @@ type MediaVariant struct {
 	Bandwidth        int64  `json:"bandwidth,omitempty"`
 	HasVideo         bool   `json:"hasVideo"`
 	HasAudio         bool   `json:"hasAudio"`
-	AudioDescription string `json:"audioDescription,omitempty"`
+	AudioDescription string `json:"audioDescription"`
 }
 
 // ManifestVariant is the analyzer-internal intermediate representation of a
@@ -177,7 +177,7 @@ type AnalysisEvent struct {
 	Phase        AnalysisPhase   `json:"phase"`
 	PageTitle    string          `json:"pageTitle,omitempty"`
 	CandidateCnt int             `json:"candidateCount,omitempty"`
-	Result       *AnalysisResult `json:"result,omitempty"`
+	Result       *AnalysisResult `json:"result"`
 	ErrorCode    string          `json:"errorCode,omitempty"`
 	ErrorMessage string          `json:"errorMessage,omitempty"`
 }

@@ -103,7 +103,26 @@ func sanitizeForPlatform(name string, p platform) string {
 
 	runes := []rune(result)
 	if len(runes) > MaxFileNameLength {
-		runes = runes[:MaxFileNameLength]
+		var extRunes []rune
+		lastDot := -1
+		for i := len(runes) - 1; i >= 0; i-- {
+			if runes[i] == '.' {
+				lastDot = i
+				break
+			}
+		}
+
+		if lastDot > 0 && lastDot < len(runes)-1 {
+			extRunes = runes[lastDot:]
+			baseMax := MaxFileNameLength - len(extRunes)
+			if baseMax > 0 {
+				runes = append(runes[:baseMax], extRunes...)
+			} else {
+				runes = runes[:MaxFileNameLength]
+			}
+		} else {
+			runes = runes[:MaxFileNameLength]
+		}
 		result = string(runes)
 	}
 

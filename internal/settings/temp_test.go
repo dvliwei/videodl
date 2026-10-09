@@ -78,8 +78,8 @@ func TestUniqueTempPath_UsesDefaultTempDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if filepath.Dir(p) != os.TempDir() {
-		t.Errorf("should use os.TempDir(), got %q", filepath.Dir(p))
+	if filepath.Clean(filepath.Dir(p)) != filepath.Clean(os.TempDir()) {
+		t.Errorf("should use os.TempDir(), got %q want %q", filepath.Dir(p), os.TempDir())
 	}
 }
 
@@ -149,8 +149,8 @@ func TestUniqueTempDir_DefaultParent(t *testing.T) {
 	}
 	defer os.RemoveAll(d)
 
-	if filepath.Dir(d) != os.TempDir() {
-		t.Errorf("should use os.TempDir(), got %q", filepath.Dir(d))
+	if filepath.Clean(filepath.Dir(d)) != filepath.Clean(os.TempDir()) {
+		t.Errorf("should use os.TempDir(), got %q want %q", filepath.Dir(d), os.TempDir())
 	}
 }
 
