@@ -5,15 +5,26 @@ import TaskList from './features/tasks/TaskList.vue'
 import {
   startDownload,
   getDefaultDirectory,
+  setDefaultDirectory,
   chooseDirectory,
   saveAs,
   isWailsAvailable
 } from './shared/wails.js'
 
+const PROFILE_OPTIONS = [
+  { value: 'original', label: '原始质量（无损封装）' },
+  { value: 'mp4-h264-aac', label: '兼容 MP4 (H.264/AAC)' }
+]
+
 const defaultDir = ref('')
 const isDefaultDir = ref(false)
 const dirHintLoading = ref(false)
 const dirLoadError = ref(null)
+
+const selectedProfile = ref('original')
+const saveAsMode = ref(false)
+
+const downloadError = ref(null)
 
 const showFirstTimePrompt = computed(() =>
   isWailsAvailable() && isDefaultDir.value && defaultDir.value
@@ -36,21 +47,21 @@ onMounted(async () => {
 async function openDirectoryDialog() {
   try {
     const chosen = await chooseDirectory(defaultDir.value)
-    if (chosen) {
-      defaultDir.value = chosen
-      isDefaultDir.value = false
-    }
+    if (!chosen) return
+    await setDefaultDirectory(chosen)
+    defaultDir.value = chosen
+    isDefaultDir.value = false
   } catch (err) {
     dirLoadError.value = err.message || String(err)
   }
 }
 
 async function handleDownload(payload) {
+  downloadError.value = null
   try {
     let outputPath = ''
 
-    const wantSaveAs = false
-    if (wantSaveAs) {
+    if (saveAsMode.value) {
       const suggestedName = `${payload.title || 'video'}.mp4`
       const chosen = await saveAs(suggestedName, defaultDir.value)
       if (!chosen) return
@@ -62,11 +73,15 @@ async function handleDownload(payload) {
       mediaId: payload.mediaId,
       variantId: payload.variantId || '',
       outputPath,
-      profile: 'original'
+      profile: selectedProfile.value
     })
   } catch (err) {
-    console.error('start download failed:', err)
+    downloadError.value = err.message || String(err)
   }
+}
+
+function clearDownloadError() {
+  downloadError.value = null
 }
 </script>
 
@@ -78,18 +93,34 @@ async function handleDownload(payload) {
         <span>VideoDL</span>
       </div>
 
-      <div v-if="isWailsAvailable() && defaultDir" class="dir-hint" aria-live="polite">
-        <span class="dir-hint-label">下载目录</span>
-        <span class="dir-hint-path" :title="defaultDir">{{ defaultDir }}</span>
-        <span v-if="isDefaultDir" class="dir-hint-badge">默认</span>
-        <button
-          type="button"
-          class="dir-change-btn"
-          @click="openDirectoryDialog"
-          :disabled="dirHintLoading"
-        >
-          更改
-        </button>
+      <div v-if="isWailsAvailable() && defaultDir" class="header-controls">
+        <div class="dir-hint" aria-live="polite">
+          <span class="dir-hint-label">下载目录</span>
+          <span class="dir-hint-path" :title="defaultDir">{{ defaultDir }}</span>
+          <span v-if="isDefaultDir" class="dir-hint-badge">默认</span>
+          <button
+            type="button"
+            class="dir-change-btn"
+            @click="openDirectoryDialog"
+            :disabled="dirHintLoading"
+          >
+            更改
+          </button>
+        </div>
+
+        <div class="profile-select">
+          <label class="profile-label" for="profile-select">输出格式</label>
+          <select id="profile-select" v-model="selectedProfile" class="profile-dropdown">
+            <option v-for="opt in PROFILE_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <label class="save-as-toggle">
+          <input type="checkbox" v-model="saveAsMode" />
+          <span>下载时另存为…</span>
+        </label>
       </div>
 
       <span v-else class="header-caption">桌面视频下载器</span>
@@ -111,6 +142,16 @@ async function handleDownload(payload) {
           </div>
           <button type="button" class="first-run-btn" @click="openDirectoryDialog">选择目录</button>
         </div>
+      </div>
+
+      <div v-if="dirLoadError" class="error-banner" role="alert">
+        <span>目录操作失败：{{ dirLoadError }}</span>
+        <button type="button" class="banner-close" @click="dirLoadError = null">×</button>
+      </div>
+
+      <div v-if="downloadError" class="error-banner" role="alert">
+        <span>下载失败：{{ downloadError }}</span>
+        <button type="button" class="banner-close" @click="clearDownloadError">×</button>
       </div>
 
       <AnalyzePanel @download="handleDownload" />

@@ -35,7 +35,7 @@ const videoLabel = computed(() => {
 
 const unsupportedReason = computed(() => props.candidate.unsupported || '')
 
-const hasVariants = computed(() => 
+const hasVariants = computed(() =>
   props.candidate.variants && props.candidate.variants.length > 0
 )
 
@@ -53,11 +53,20 @@ function getVariantLabel(v) {
   return parts.join(' · ') || '默认'
 }
 
+const effectiveVariantId = computed(() => {
+  if (props.selectedVariantId) return props.selectedVariantId
+  if (hasVariants.value && props.candidate.variants[0]) {
+    return props.candidate.variants[0].id || ''
+  }
+  return ''
+})
+
 function handleDownload() {
   emit('download', {
     analysisId: props.analysisId,
     mediaId: props.candidate.id,
-    variantId: props.selectedVariantId || ''
+    variantId: effectiveVariantId.value,
+    title: props.candidate.title || ''
   })
 }
 
@@ -126,7 +135,7 @@ function handleSelectVariant(variantId) {
               :key="v.id || i"
               type="button"
               class="variant-chip"
-              :class="{ 'is-selected': selectedVariantId === v.id || (!selectedVariantId && i === 0) }"
+              :class="{ 'is-selected': effectiveVariantId === (v.id || '') || (!effectiveVariantId && i === 0) }"
               @click="handleSelectVariant(v.id)"
             >
               {{ getVariantLabel(v) }}
@@ -148,4 +157,4 @@ function handleSelectVariant(variantId) {
     </footer>
   </article>
 </template>
-ENDOFFILE 
+ENDOFFILE
