@@ -1,7 +1,21 @@
 <script setup>
 import { ref } from 'vue'
+import AnalyzePanel from './features/analyze/AnalyzePanel.vue'
+import { startDownload } from './shared/wails.js'
 
-const pageURL = ref('')
+const handleDownload = async (payload) => {
+  try {
+    await startDownload({
+      analysisId: payload.analysisId,
+      mediaId: payload.mediaId,
+      variantId: payload.variantId || '',
+      outputPath: '',
+      profile: 'original'
+    })
+  } catch (err) {
+    console.error('start download failed:', err)
+  }
+}
 </script>
 
 <template>
@@ -21,43 +35,13 @@ const pageURL = ref('')
         <p class="intro-copy">粘贴公开网页地址，分析可用的视频资源。</p>
       </div>
 
-      <form class="url-form" @submit.prevent>
-        <label class="sr-only" for="page-url">网页地址</label>
-        <input
-          id="page-url"
-          v-model="pageURL"
-          type="url"
-          inputmode="url"
-          placeholder="粘贴网页 URL，例如 https://example.com/video"
-          autocomplete="url"
-          spellcheck="false"
-        />
-        <button type="submit" disabled title="分析服务将在后续开发任务中接入">
-          分析
-        </button>
-      </form>
-      <p class="service-note">分析与下载服务正在搭建中，当前界面用于后续功能接入。</p>
-
-      <section class="panel results-panel" aria-labelledby="results-title">
-        <div class="panel-heading">
-          <div>
-            <h2 id="results-title">视频资源</h2>
-            <p>分辨率、格式和音视频信息将在分析后显示</p>
-          </div>
-          <span class="panel-count">0</span>
-        </div>
-        <div class="empty-state">
-          <span class="empty-icon" aria-hidden="true">▶</span>
-          <strong>还没有分析结果</strong>
-          <span>分析完成后，可在这里选择视频并开始下载。</span>
-        </div>
-      </section>
+      <AnalyzePanel @download="handleDownload" />
 
       <section class="panel tasks-panel" aria-labelledby="tasks-title">
         <div class="panel-heading">
           <div>
             <h2 id="tasks-title">下载任务</h2>
-            <p>查看进度、状态和已完成的文件</p>
+            <p>查看进度、状态和已完成的文件（后续任务中接入）</p>
           </div>
         </div>
         <div class="task-placeholder">暂无下载任务</div>
@@ -70,3 +54,4 @@ const pageURL = ref('')
     </footer>
   </main>
 </template>
+ENDOFFILE 

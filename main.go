@@ -12,10 +12,8 @@ import (
 var assets embed.FS
 
 func main() {
-	// Create the Wails application facade.
 	app := NewApp()
 
-	// Configure and start the desktop application.
 	err := wails.Run(&options.App{
 		Title:  "VideoDL",
 		Width:  1024,
@@ -25,6 +23,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 245, G: 247, B: 250, A: 1},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
 			app,
 		},
