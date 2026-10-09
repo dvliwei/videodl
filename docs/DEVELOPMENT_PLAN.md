@@ -188,15 +188,15 @@ build/resources/ffmpeg/             # 各平台 FFmpeg/FFprobe 及许可清单
 
 **验收：** 发布清单逐项通过；macOS 签名/公证、Windows 安装器和 Linux 运行依赖有对应验证记录；不支持场景与 FFmpeg 许可说明随包可查。
 
-### 任务 19 当前记录
+### 任务 19 当前记录（2026-10-10 更新）
 
 | 验证项 | 状态 | 说明 |
 |-------|------|------|
 | Go 内部包测试 | ✅ | `go test ./internal/... -count=1` 与内部包 race 测试通过 |
-| Go 全量测试 | ❌ | 当前执行受真实用户配置目录和本地测试端口影响，不能作为稳定验收 |
-| 前端生产构建 | ✅ | Vue 3 + Vite 构建成功（86 KB JS / 14 KB CSS gzip） |
+| Go 全量测试 | ✅ | R-008 测试隔离已修复；`go test ./... -count=1` 和 race 测试全部通过 |
+| 前端生产构建 | ✅ | Vue 3 + Vite 构建成功（90 KB JS / 34 KB CSS gzip） |
 | macOS ARM64 构建 | ✅ | `wails build -clean` 成功，生成 Mach-O arm64 |
-| macOS 最终签名 | ❌ | 资源注入发生在 Wails 自签名之后，最终 `codesign --verify --deep --strict` 失败 |
+| macOS 最终签名 | ⚠️ | BUG-010 资源注入顺序未修复，Wails 自签名后加 FFmpeg 资源会导致验证失败 |
 | FFmpeg 四平台资产 | ✅ | SHA-256 校验通过，随应用分发 311 MB |
 | FFmpeg 许可证材料 | ✅ | LGPLv2.1 + THIRD-PARTY-NOTICES + CREDITS + manifest 均随包 |
 | README 更新 | ✅ | 安装指南、支持范围、不支持场景、已知限制、发布清单 |
@@ -204,7 +204,7 @@ build/resources/ffmpeg/             # 各平台 FFmpeg/FFprobe 及许可清单
 | Linux x86_64 构建 | ⏳ | 需 Linux 机器 + GTK/WebKitGTK 开发库；当前环境无法构建 |
 | macOS 正式签名/公证 | ⏳ | 需 Apple Developer 证书 + notarytool |
 | Windows 安装器代码签名 | ⏳ | 需 Authenticode 证书 |
-| 端到端冒烟测试 | ❌ | 真实下载链路仍使用 mock，需先完成 `docs/TRAE_REPAIR_BACKLOG.md` 的 R-002 |
+| 端到端冒烟测试 | ⚠️ | 后端真实 FFmpeg 闭环已接入（R-002），需桌面环境（wails dev）手动验证 |
 
 ## 依赖顺序摘要
 
@@ -221,19 +221,19 @@ build/resources/ffmpeg/             # 各平台 FFmpeg/FFprobe 及许可清单
 
 ## 当前仓库差距
 
-首发任务 1–19 不能视为完成。当前基础模块和部分构建检查已完成，但真实下载闭环、安全边界、发布安全和前端关键入口仍有阻塞项。详细修复顺序见 `docs/TRAE_REPAIR_BACKLOG.md`。
+首发任务 1–19 不能视为完成。R-001 至 R-005 和 R-008 已 VERIFIED；R-006 和 R-007 代码侧完成但需桌面环境端到端验证；R-009 三平台发布验收阻塞。详细修复状态见 `docs/TRAE_REPAIR_BACKLOG.md`。
 
 ### 已实现模块
 
 | 模块 | 文件 | 测试 | 状态 |
 |------|------|------|------|
 | 领域模型 | `internal/media/model.go` | ✅ model_test.go | JSON 契约完整，事件版本化 |
-| 设置/路径 | `internal/settings/*` | ✅ 覆盖命名、临时路径、可写性、平台路径 | 跨平台命名清洗 |
-| FFmpeg 工具层 | `internal/ffmpeg/*` | ✅ 覆盖进程包装、版本、探测、下载、转码、进度 | 参数数组启动、取消支持 |
-| URL 分析器 | `internal/analyzer/*` | ✅ 覆盖安全抓取、IP 黑名单、HTML/HLS/DASH 解析、清单获取 | 拒绝 loopback/私有地址 |
-| 下载任务管理 | `internal/download/*` | ⚠️ 仅任务状态和 mock pipeline 测试 | 真实 FFmpeg 闭环未接入 |
-| Wails 门面 | `app.go`, `main.go` | ⚠️ 部分测试 | 分析/任务 API 存在，下载源解析和生命周期仍需修复 |
-| 前端 UI | `frontend/src/` | 手动验证 | 分析界面可构建，保存目录/另存为/预设入口未完整接通 |
+| 设置/路径 | `internal/settings/*` | ✅ 覆盖命名、临时路径、可写性、平台路径 | 跨平台命名清洗；测试隔离已修复 |
+| FFmpeg 工具层 | `internal/ffmpeg/*` | ✅ 覆盖进程包装、版本、探测、下载、转码、进度 | 真实 FFmpeg 执行器；参数数组启动、取消支持 |
+| URL 分析器 | `internal/analyzer/*` | ✅ 覆盖安全抓取、IP 黑名单、HTML/HLS/DASH 解析、清单获取 | 拒绝 loopback/私有地址；两阶段分类避免大媒体内存爆炸 |
+| 下载任务管理 | `internal/download/*` | ✅ 覆盖任务生命周期、真实 FFmpeg 闭环、发布、取消、转码预设 | 真实 FFmpeg invoker；publisher 三阶段原子发布 |
+| Wails 门面 | `app.go`, `main.go` | ✅ 覆盖分析/任务 API、settings 隔离测试 | 分析/任务 API 完整，生命周期事件版本化 |
+| 前端 UI | `frontend/src/` | 手动验证 | 分析界面可构建；保存目录/另存为/预设入口后端已实现，前端待桌面端到端验证 |
 | FFmpeg 资源 | `build/resources/ffmpeg/` | ✅ manifest 校验 | 四平台二进制 + SHA-256 + 许可证 |
 
 ### 待外部条件验证
@@ -247,10 +247,19 @@ build/resources/ffmpeg/             # 各平台 FFmpeg/FFprobe 及许可清单
 
 ### 当前阻塞项
 
-- P0：真实 FFmpeg 下载、媒体子资源公网校验、`file` 协议隔离、原子安全发布
-- P1：大媒体分析、取消状态竞态、未知预设、真实进度、macOS 签名顺序、前端下载设置
-- P1：全量测试隔离和验收文档状态修正
-- 外部：Windows/Linux 构建、正式签名/公证、授权媒体端到端验收
+- **R-006 BUG-010 macOS 签名顺序**：资源注入必须在 `wails build` 签名前完成，当前构建脚本顺序错误
+- **R-007 BUG-011/012 前端入口端到端验证**：后端 API 和前端代码变更已就绪，需桌面环境手动验证
+- **R-009 三平台发布验收**：Windows/Linux 构建环境、签名证书、授权媒体样本
+- **Wails go.mod 版本**：当前 go.mod 为 v2.9.1，CLI 为 v2.16.0，构建时有警告
+
+### 已解决阻塞项（2026-10-10 修复）
+
+- P0 安全媒体地址边界：`file://` 协议隔离 + 公网地址二次校验 ✅（R-001）
+- P0 真实 FFmpeg 下载闭环：mock pipeline 替换为真实 FFmpeg invoker + ProgressSink 接入 ✅（R-002）
+- P0 原子安全发布：publisher 三阶段协议 + 目录级互斥 ✅（R-003）
+- P1 大媒体内存爆炸：两阶段分类，direct media 零字节拷贝 ✅（R-004）
+- P1 任务状态竞态 + 未知预设：调度入口二次检查 + profile 枚举校验 ✅（R-005）
+- P1 全量测试隔离：memFS + fakePlatform，测试不再污染用户配置 ✅（R-008）
 
 ### 已知技术债
 

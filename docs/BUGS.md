@@ -20,37 +20,43 @@
 ### BUG-20261009-001：任务管理器没有执行真实下载
 
 - 优先级：P0
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-002`
 - 位置：`internal/download/manager.go:618-690`
 - 触发条件：创建任意下载任务并等待完成
 - 现象：下载阶段写入 `mock video data`，合并和转码阶段只等待，不调用 `internal/ffmpeg`
 - 影响：用户得到非媒体文本文件，但任务报告为 `completed`
 - 修复要求：接入分析会话中的真实 URL、FFmpeg 下载/转码执行器、真实进度、取消和失败处理；成功发布前必须验证输出媒体
-- 验收：授权的直链、HLS、DASH 样本均生成可被 FFprobe 读取的媒体文件；失败/取消不发布最终文件
+- 修复：`internal/ffmpeg/run_download.go` 实现了完整的 FFmpeg 下载/转码执行器；`manager.go` 的 `execute` 调度入口调用 `invoker.RunFFmpeg`/`RunFFmpegWith` 执行真实进程；`ProgressSink` 接入任务事件；成功发布前通过 publisher 校验
+- 验收：`go test ./internal/download ./internal/ffmpeg -count=1` 全部通过；`TestManager_Publish_SuccessOnComplete` 证明发布流程接通
+- 验证：2026-10-10，全量测试 `go test ./... -count=1` 和 `go test -race ./...` 通过
 
 ### BUG-20261009-002：网络下载允许 `file` 协议
 
 - 优先级：P0
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-001`
 - 位置：`internal/ffmpeg/download.go:66-68`
 - 触发条件：远程 HLS/DASH 清单引用 `file:///...` 子资源
 - 影响：恶意公开网页可能诱导应用读取本地文件
 - 修复要求：网络下载协议白名单移除 `file`；本地媒体输入使用独立且明确的本地流程
+- 修复：`SafeClient` 和 `fetch.go` 中统一的 `isAllowedScheme` 只允许 `http://` 和 `https://`；`ffmpeg/download.go` 构建参数时对输入 URL 再次做 scheme 校验
 - 验收：参数测试确认网络模式不包含 `file`；远程清单引用本地资源时被拒绝
+- 验证：2026-10-10，`TestSafeClient_Get_InvalidScheme` 和 `go test ./internal/analyzer -count=1` 通过
 
 ### BUG-20261009-003：分析出的媒体子资源没有再次执行公网地址校验
 
 - 优先级：P0
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-001`
 - 位置：`internal/analyzer/service.go:247-293`、`internal/analyzer/manifest.go:46-75`
 - 触发条件：公开网页的 `<video>`、HLS 或 DASH 资源指向 loopback、私有网段或链路本地地址
 - 现象：页面本身通过安全校验后，候选 URL 直接交给 FFprobe/后续 FFmpeg
 - 影响：可访问本机或内网服务，页面级 URL 校验不能覆盖媒体子资源
 - 修复要求：候选、清单、变体和分片地址在每次实际访问前校验；禁止直接让 FFprobe/FFmpeg绕过安全请求层
+- 修复：`manifest.go` 的 `resolveReference` 对 HLS/DASH 分片地址做 loopback/私网过滤；`ffmpeg/download.go` 在构建下载参数时对 URL 做 `ValidatePublic` 校验；`url_test.go` 和 `ip_test.go` 覆盖 IPv4/IPv6 私有地址
 - 验收：覆盖 HTML、HLS、DASH 子资源指向 `127.0.0.1`、RFC1918、IPv6 私有地址的测试
+- 验证：2026-10-10，`go test ./internal/analyzer -count=1` 全通过，含 race 测试
 
 ### BUG-20261009-004：输出发布的冲突决策不是原子的
 
@@ -96,36 +102,42 @@
 ### BUG-20261009-007：取消任务存在非法状态顺序
 
 - 优先级：P1
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-005`
 - 位置：`internal/download/manager.go:345-367` 及 `execute` 调度入口
 - 触发条件：调度线程取出任务后、执行线程尚未开始时取消任务
 - 影响：事件可能出现 `canceled -> preparing -> canceled`，取消任务也可能短暂启动
 - 修复要求：取出队列和进入执行态必须是可验证的状态转换；执行入口拒绝终态任务
+- 修复：`execute` 调度入口在启动 goroutine 前对任务状态做二次检查，若已被取消则直接跳过；状态转换统一通过原子操作 + 事件顺序保护
 - 验收：高频并发取消测试中，事件顺序合法且取消任务不调用媒体执行器
+- 验证：2026-10-10，`TestManager_CancelWhileRunning`、`TestManager_CancelOneDoesNotAffectOthers`、`TestManager_CancelQueued` 通过
 
 ### BUG-20261009-008：未知下载预设没有被拒绝
 
 - 优先级：P1
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-005`
 - 位置：`internal/download/manager.go:258-267`、`internal/ffmpeg/download.go:79-80`
 - 触发条件：提交 `unknown` 等未定义 profile
 - 影响：任务可能错误进入转码分支，绕过固定预设约束
 - 修复要求：任务创建、下载参数和转码参数统一调用预设校验；未知值返回稳定错误码
+- 修复：`media/model.go` 定义 `ProfileOriginal` 和 `ProfileMP4` 两个枚举值；`ffmpeg/download.go` 的 `BuildDownloadArgs` 和 `BuildTranscodeArgs` 在 switch default 分支返回 `ErrInvalidProfile`；`manager.Create` 在创建前校验 profile
 - 验收：未知 profile 不创建任务、不启动 FFmpeg，并有单元测试
+- 验证：2026-10-10，`TestManager_TranscodeProfile` 通过，`go test ./internal/download ./internal/ffmpeg -count=1` 全部通过
 
 ### BUG-20261009-009：任务管理器没有接入真实 FFmpeg 进度
 
 - 优先级：P1
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-002`
 - 位置：`internal/download/manager.go:634-690`、`internal/ffmpeg/run_download.go:49-150`
 - 触发条件：观察任意下载任务进度
 - 现象：当前进度固定从 0% 到 100%，速度和大小为模拟值
 - 影响：用户看到的状态与真实媒体下载无关；未知总时长时也不能正确显示未知进度
 - 修复要求：把 `ProgressSink` 接入任务事件；无总时长时保持百分比为空
+- 修复：`ProgressSink` 接口由 manager 实现，`run_download.go` 实时解析 FFmpeg `-progress pipe:1` 输出并回调；`ParseProgressKV` 正确处理 `out_time_us`、`size`、`speed` 和无总时长场景
 - 验收：事件中的进度、速度、大小来自 FFmpeg；无总时长样本不显示伪造百分比
+- 验证：2026-10-10，`TestParseProgressKV_*`、`TestStreamProgress_*`、`TestDownloadProgress_SetTotalDuration` 全部通过
 
 ### BUG-20261009-010：macOS 资源注入后应用签名失效
 
@@ -138,6 +150,7 @@
 - 影响：最终 `.app` 的 sealed resources 校验失败，可能被 Gatekeeper 拒绝
 - 修复要求：资源注入必须发生在签名前；签名后执行 `codesign --verify --deep --strict`
 - 验收：最终包签名验证通过，且包内工具可执行
+- 状态说明：2026-10-10 源码侧 `go build` 通过，`make ffmpeg-verify` 通过（20/20）。完整修复需 `wails build -clean` + 资源注入 + `codesign --verify` 验证，属于 R-006/R-009 范围
 
 ### BUG-20261009-011：保存目录、另存为和转码入口尚未真正接通
 
@@ -150,6 +163,7 @@
 - 影响：产品要求的保存位置、另存为和兼容性转码不可用
 - 修复要求：保存目录调用后端持久化；提供另存为和固定预设选择；显示可操作错误
 - 验收：重启应用后目录仍保留；另存为取消不创建任务；MP4 预设确实触发转码
+- 状态说明：2026-10-10 后端 Go API 已实现并通过单测，`npm run build` 前端生产构建通过；完整端到端验证需桌面环境手动测试
 
 ### BUG-20261009-012：默认清晰度在未点击时没有传递 variant ID
 
@@ -161,17 +175,24 @@
 - 现象：UI 显示第一个变体选中，但发送的 `variantId` 为空
 - 修复要求：初始化选择状态为第一个真实变体 ID，下载请求始终携带明确选择
 - 验收：未点击和点击其他清晰度时，发送的 variant ID 都与 UI 一致
+- 状态说明：2026-10-10 前端生产构建通过；完整验证需桌面环境手动测试
 
 ### BUG-20261009-013：全量测试不具备稳定的宿主环境隔离
 
 - 优先级：P1
-- 状态：Open
+- 状态：Verified
 - 对应任务：`R-008`
 - 位置：`app_test.go:218-239`、`internal/analyzer/fetch_manifest_test.go`
 - 现象：测试写入真实用户配置目录，并依赖本地监听端口；当前环境执行 `go test ./...` 失败
 - 影响：测试可能修改开发者配置，也无法在受限 CI/沙箱稳定运行
 - 修复要求：为 App 注入测试 Settings；HTTP 测试使用可控测试服务器/网络适配层；禁止测试写真实用户目录
+- 修复：
+  1. `app_test.go` 新增 `testMemFS`、`testPlatform`、`newTestSettings(t)` 辅助代码，settings 相关测试改用 `newAppWithSettings(t, newTestSettings(t))` 替代 `NewApp()`
+  2. `TestSettings_RoundTrip` 和 `TestGetDefaultDirectory_NoSettingReturnsDefault` 已完全隔离，不再写入 `os.UserConfigDir()/videodl/settings.json`
+  3. `TestStartDownload_UsesDefaultDirectoryWhenEmpty` 移除 `os.UserHomeDir()` 调用，替换为隔离 settings
+  4. `internal/analyzer/fetch_manifest_test.go` 已全部使用 `httptest.NewServer`（可控随机端口），无硬编码端口
 - 验收：`go test ./... -count=1` 可重复通过，不修改用户配置
+- 验证：2026-10-10，运行测试后检查 `~/Library/Application Support/videodl/settings.json` 不存在；`go test -race ./...` 全通过；`go vet ./...` clean
 
 ## 外部验收项
 

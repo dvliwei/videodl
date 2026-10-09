@@ -18,6 +18,113 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+type testMemFS struct {
+	files map[string][]byte
+	dirs  map[string]bool
+}
+
+func newTestMemFS() *testMemFS {
+	return &testMemFS{files: make(map[string][]byte), dirs: make(map[string]bool)}
+}
+
+func (m *testMemFS) Stat(path string) (os.FileInfo, error) {
+	if m.dirs[path] {
+		return &testMemFileInfo{name: filepath.Base(path), isDir: true}, nil
+	}
+	if data, ok := m.files[path]; ok {
+		return &testMemFileInfo{name: filepath.Base(path), size: int64(len(data)), isDir: false}, nil
+	}
+	return nil, os.ErrNotExist
+}
+
+func (m *testMemFS) MkdirAll(path string, perm os.FileMode) error {
+	m.dirs[path] = true
+	return nil
+}
+
+func (m *testMemFS) WriteFile(filename string, data []byte, perm os.FileMode) error {
+	if err := m.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+		return err
+	}
+	m.files[filename] = append([]byte{}, data...)
+	return nil
+}
+
+func (m *testMemFS) ReadFile(filename string) ([]byte, error) {
+	data, ok := m.files[filename]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return append([]byte{}, data...), nil
+}
+
+func (m *testMemFS) CreateTemp(dir, prefix string) (*os.File, error) {
+	if !m.dirs[dir] {
+		return nil, os.ErrNotExist
+	}
+	f, err := os.CreateTemp("", prefix+"_test_*")
+	if err != nil {
+		return nil, err
+	}
+	m.files[f.Name()] = []byte{}
+	return f, nil
+}
+
+func (m *testMemFS) Remove(path string) error {
+	if _, ok := m.files[path]; ok {
+		delete(m.files, path)
+		return nil
+	}
+	if m.dirs[path] {
+		delete(m.dirs, path)
+		return nil
+	}
+	return os.ErrNotExist
+}
+
+type testMemFileInfo struct {
+	name  string
+	size  int64
+	isDir bool
+}
+
+func (m *testMemFileInfo) Name() string       { return m.name }
+func (m *testMemFileInfo) Size() int64        { return m.size }
+func (m *testMemFileInfo) Mode() os.FileMode  { return 0o644 }
+func (m *testMemFileInfo) ModTime() time.Time { return time.Time{} }
+func (m *testMemFileInfo) IsDir() bool        { return m.isDir }
+func (m *testMemFileInfo) Sys() interface{}   { return nil }
+
+type testPlatform struct {
+	configDir string
+	homeDir   string
+}
+
+func (f testPlatform) UserConfigDir() (string, error) { return f.configDir, nil }
+func (f testPlatform) UserHomeDir() (string, error)   { return f.homeDir, nil }
+func (f testPlatform) DefaultDownloadDir() string     { return "Downloads" }
+
+func newTestSettings(t *testing.T) *settings.Settings {
+	t.Helper()
+	tmpDir := t.TempDir()
+	fs := newTestMemFS()
+	platform := testPlatform{
+		configDir: filepath.Join(tmpDir, "config"),
+		homeDir:   filepath.Join(tmpDir, "home"),
+	}
+	return settings.NewSettingsWith(fs, platform)
+}
+
+func newAppWithSettings(t *testing.T, s *settings.Settings) *App {
+	t.Helper()
+	app := &App{
+		settings:        s,
+		analysisResults: make(map[string]*media.AnalysisResult),
+		analysisCancel:  make(map[string]context.CancelFunc),
+	}
+	return app
+}
+
 func TestNewApp_EventsBoundOnce(t *testing.T) {
 	app := NewApp()
 
@@ -87,8 +194,7 @@ func TestStartDownload_RequiresAnalysis(t *testing.T) {
 
 func TestStartDownload_UsesDefaultDirectoryWhenEmpty(t *testing.T) {
 	app := NewApp()
-
-	tmpDir := t.TempDir()
+	app.settings = newTestSettings(t)
 
 	app.mu.Lock()
 	app.analysisResults["aaa"] = &media.AnalysisResult{
@@ -100,14 +206,7 @@ func TestStartDownload_UsesDefaultDirectoryWhenEmpty(t *testing.T) {
 	}
 	app.mu.Unlock()
 
-	dir, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = dir
-	_ = tmpDir
-
-	_, err = app.StartDownload(media.DownloadRequest{
+	_, err := app.StartDownload(media.DownloadRequest{
 		AnalysisID: "aaa",
 		MediaID:    "m1",
 		Profile:    media.ProfileOriginal,
@@ -217,7 +316,7 @@ func TestGetTask_MissingReturnsError(t *testing.T) {
 }
 
 func TestSettings_RoundTrip(t *testing.T) {
-	app := NewApp()
+	app := newAppWithSettings(t, newTestSettings(t))
 
 	tmpDir := t.TempDir()
 	myPath := filepath.Join(tmpDir, "my-downloads")
@@ -240,12 +339,7 @@ func TestSettings_RoundTrip(t *testing.T) {
 }
 
 func TestGetDefaultDirectory_NoSettingReturnsDefault(t *testing.T) {
-	app := NewApp()
-
-	cfg, _ := app.settings.Load()
-	if cfg != nil && cfg.DownloadDirectory != "" {
-		t.Skip("user already has an explicit download directory configured")
-	}
+	app := newAppWithSettings(t, newTestSettings(t))
 
 	resp, err := app.GetDefaultDirectory()
 	if err != nil {

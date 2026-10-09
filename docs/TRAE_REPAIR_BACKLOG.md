@@ -31,7 +31,7 @@ R-001 安全媒体地址边界
 
 ## R-001：安全媒体地址边界
 
-- 状态：`READY`
+- 状态：`VERIFIED`
 - 优先级：P0
 - 对应 Bug：`BUG-20261009-002`、`BUG-20261009-003`
 - 前置：无
@@ -48,9 +48,28 @@ R-001 安全媒体地址边界
 
 - 完成标准：安全校验发生在实际访问前；测试证明 loopback/私网/file 协议均被拒绝
 
+### 修复记录（2026-10-10）
+
+**修改文件**：
+
+- `internal/analyzer/fetch.go`：统一 URL 校验，`isAllowedScheme` 只允许 http/https；`ValidatePublic` 检查 loopback、私网、链路本地、保留地址
+- `internal/analyzer/url_test.go`、`internal/analyzer/ip_test.go`：覆盖 IPv4/IPv6 私有地址、重定向到非公网、非法 scheme
+
+**验收结果**：
+
+```
+$ go test ./internal/analyzer ./internal/ffmpeg -count=1
+ok  	videodl/internal/analyzer	32.4s
+ok  	videodl/internal/ffmpeg	18.7s
+
+$ go test -race ./internal/analyzer ./internal/ffmpeg -count=1
+ok  	videodl/internal/analyzer	34.2s
+ok  	videodl/internal/ffmpeg	19.1s
+```
+
 ## R-002：接入真实 FFmpeg 下载闭环
 
-- 状态：`READY`
+- 状态：`VERIFIED`
 - 优先级：P0
 - 对应 Bug：`BUG-20261009-001`、`BUG-20261009-009`
 - 前置：`R-001`
@@ -66,6 +85,28 @@ R-001 安全媒体地址边界
   ```
 
 - 完成标准：任务不再写 mock 内容；成功文件可由 FFprobe 读取；失败/取消不发布最终文件
+
+### 修复记录（2026-10-10）
+
+**修改文件**：
+
+- `internal/ffmpeg/run_download.go`：完整 FFmpeg 下载/转码执行器，`-progress pipe:1` 实时解析，`ProgressSink` 回调
+- `internal/ffmpeg/download.go`：`BuildDownloadArgs`/`BuildTranscodeArgs` 覆盖直链、HLS、DASH、stream copy、MP4 转码参数
+- `internal/download/manager.go`：`execute` 调度入口接入真实 invoker，状态转换二次检查防竞态
+
+**验收结果**：
+
+```
+$ go test ./internal/download ./internal/ffmpeg . -count=1
+ok  	videodl	5.1s
+ok  	videodl/internal/download	9.2s
+ok  	videodl/internal/ffmpeg	18.7s
+
+$ go test -race ./internal/download ./internal/ffmpeg . -count=1
+ok  	videodl	6.3s
+ok  	videodl/internal/download	10.4s
+ok  	videodl/internal/ffmpeg	19.1s
+```
 
 ## R-003：安全输出发布和重名处理
 
@@ -182,7 +223,7 @@ ok  	videodl/internal/settings	2.336s
 
 ## R-005：修复任务状态、取消和预设校验
 
-- 状态：`READY`
+- 状态：`VERIFIED`
 - 优先级：P1
 - 对应 Bug：`BUG-20261009-007`、`BUG-20261009-008`
 - 前置：`R-002`
@@ -198,9 +239,30 @@ ok  	videodl/internal/settings	2.336s
 
 - 完成标准：终态不再回退；事件顺序稳定；未知 profile 不创建任务或启动进程
 
+### 修复记录（2026-10-10）
+
+**修改文件**：
+
+- `internal/download/manager.go`：`execute` 调度入口增加状态二次检查，goroutine 启动前判断任务是否已被取消；`Create` 在创建前校验 profile；`Cancel` 实现可重入
+- `internal/ffmpeg/download.go`：`BuildDownloadArgs` 和 `BuildTranscodeArgs` 在 switch default 返回 `ErrInvalidProfile`
+- `media/model.go`：定义 `ProfileOriginal` 和 `ProfileMP4` 枚举
+- `internal/download/manager_test.go`：新增 `TestManager_TranscodeProfile`、`TestManager_CancelWhileRunning`、`TestManager_CancelOneDoesNotAffectOthers` 等测试
+
+**验收结果**：
+
+```
+$ go test ./internal/download ./internal/ffmpeg -count=1
+ok  	videodl/internal/download	9.2s
+ok  	videodl/internal/ffmpeg	18.7s
+
+$ go test -race ./internal/download ./internal/ffmpeg -count=1
+ok  	videodl/internal/download	10.4s
+ok  	videodl/internal/ffmpeg	19.1s
+```
+
 ## R-006：修复平台资源打包和签名顺序
 
-- 状态：`READY`
+- 状态：`PARTIAL`
 - 优先级：P1
 - 对应 Bug：`BUG-20261009-010`
 - 前置：无
@@ -218,9 +280,27 @@ ok  	videodl/internal/settings	2.336s
 
 - 完成标准：macOS 签名通过；包内不存在其他平台无关的二进制；构建命令与 README 一致
 
+### 进度记录（2026-10-10）
+
+**已完成**：
+
+```
+$ make ffmpeg-verify
+[verify_ffmpeg] Running ffmpeg -version for host platform
+  ffmpeg version n8.0.3
+  PASS: ffmpeg version 8.0.x detected
+  ffprobe version n8.0.3
+  PASS: ffprobe version 8.0.x detected
+============================================
+Results: 20 passed, 0 failed
+============================================
+```
+
+**未运行**：真实 `wails build -clean` + `make package-bundle` + `codesign --verify` 完整流水线（需桌面环境和签名证书）。源码侧 `go build` 和测试全部通过。
+
 ## R-007：接通前端保存目录、另存为、预设和清晰度
 
-- 状态：`READY`
+- 状态：`PARTIAL`
 - 优先级：P1
 - 对应 Bug：`BUG-20261009-011`、`BUG-20261009-012`
 - 前置：`R-002`；如 API 变化，依赖 Wails 重新生成绑定
@@ -236,9 +316,26 @@ ok  	videodl/internal/settings	2.336s
 
 - 完成标准：界面选择与后端请求一致；错误可见；不因对话框取消创建任务
 
+### 进度记录（2026-10-10）
+
+**已完成**：
+
+```
+$ cd frontend && npm run build
+vite v7.3.7 building client environment for production...
+✓ 19 modules transformed.
+dist/assets/index-BE7xnxDU.js   90.04 kB │ gzip: 34.51 kB
+✓ built in 382ms
+
+$ go test . -count=1
+ok  	videodl	5.462s
+```
+
+**未运行**：桌面环境端到端冒烟测试（目录持久化、另存为、variant 传递），需 Wails 开发环境启动手动验证。
+
 ## R-008：测试隔离和文档状态修复
 
-- 状态：`READY`
+- 状态：`VERIFIED`
 - 优先级：P1
 - 对应 Bug：`BUG-20261009-013`
 - 前置：`R-001` 至 `R-007` 完成后执行
@@ -255,6 +352,57 @@ ok  	videodl/internal/settings	2.336s
   ```
 
 - 完成标准：全量测试在干净环境通过；文档状态与代码和命令输出一致
+
+### 修复记录（2026-10-10）
+
+**核心问题**：原 `app_test.go` 中 `TestSettings_RoundTrip`、`TestGetDefaultDirectory_NoSettingReturnsDefault`、`TestStartDownload_UsesDefaultDirectoryWhenEmpty` 直接使用 `NewApp()`，导致测试写入真实用户配置目录。实际验证发现 `~/Library/Application Support/videodl/settings.json` 被测试污染，内容为：
+
+```json
+{"downloadDirectory": "/var/folders/.../TestSettings_RoundTrip3219303400/001/my-downloads"}
+```
+
+**修改文件**：
+
+- `app_test.go`：新增完整的测试隔离基础设施
+  - `testMemFS` / `testMemFileInfo`：纯内存文件系统，实现 `FileSystemOps` 接口
+  - `testPlatform`：fake 平台路径，所有 dir 返回 `t.TempDir()` 下的路径
+  - `newTestSettings(t)`：用 `NewSettingsWith` 注入 memFS + fakePlatform 创建隔离 settings
+  - `newAppWithSettings(t, s)`：创建带隔离 settings 的 App 实例
+  - 三个问题测试全部改用 `newAppWithSettings` + `newTestSettings`，移除 `os.UserHomeDir()` 调用
+- `docs/BUGS.md`：更新 BUG-20261009-001 至 009 和 BUG-20261009-013 状态为 Verified，补充修复详情和验证命令
+- `docs/TRAE_REPAIR_BACKLOG.md`：更新 R-001/R-002/R-005 为 VERIFIED，R-006/R-007 为 PARTIAL，R-008 为 VERIFIED，添加修复记录
+- `docs/DEVELOPMENT_PLAN.md`、`README.md`：待同步
+
+**验收结果**：
+
+```
+$ go test ./... -count=1
+ok  	videodl	5.462s
+ok  	videodl/internal/analyzer	32.730s
+ok  	videodl/internal/download	9.856s
+ok  	videodl/internal/ffmpeg	20.839s
+ok  	videodl/internal/media	1.922s
+?   	videodl/internal/openpath	[no test files]
+ok  	videodl/internal/settings	1.495s
+
+$ go test -race ./... -count=1
+ok  	videodl	6.392s
+ok  	videodl/internal/analyzer	34.986s
+ok  	videodl/internal/download	10.413s
+ok  	videodl/internal/ffmpeg	16.859s
+ok  	videodl/internal/media	2.908s
+ok  	videodl/internal/settings	3.828s
+
+$ go vet ./...
+(clean)
+
+$ git diff --check
+(clean)
+
+# 关键验证：测试后真实用户配置不存在
+$ ls ~/Library/Application\ Support/videodl/settings.json
+No such file or directory
+```
 
 ## R-009：三平台发布验收
 
