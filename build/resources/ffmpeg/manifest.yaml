@@ -1,0 +1,139 @@
+schema_version: 2
+
+ffmpeg:
+  version: "8.0.3"
+  branch: "8.0"
+  release_date: "2026-06-18"
+  upstream_homepage: "https://ffmpeg.org"
+  upstream_repository: "https://github.com/FFmpeg/FFmpeg"
+
+license:
+  type: "LGPL-2.1-or-later"
+  distribution_model: "standalone subprocess; VideoDL does not link FFmpeg libraries"
+  policy: "no GPL, nonfree, or version3-only components"
+  license_files:
+    - "licenses/FFmpeg-COPYING.LGPLv2.1"
+    - "licenses/THIRD-PARTY-NOTICES.md"
+
+source:
+  provider: "AtlasYang/ffmpeg-static-builds"
+  provider_url: "https://github.com/AtlasYang/ffmpeg-static-builds"
+  release_tag: "ffmpeg-8.0.3-build4"
+  release_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/tag/ffmpeg-8.0.3-build4"
+  source_archive_url: "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz"
+  source_signature_url: "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz.asc"
+  modified: false
+
+encoders:
+  video:
+    - name: "libvpx-vp9"
+      license: "BSD-3-Clause"
+      use: "VP8/VP9 compatibility output"
+    - name: "libaom-av1"
+      license: "BSD-2-Clause + AOM Patent License 1.0"
+      use: "AV1 output when selected by a future fixed preset"
+  audio:
+    - name: "aac"
+      license: "LGPL-2.1-or-later"
+      use: "MP4 compatibility preset"
+    - name: "libopus"
+      license: "BSD-3-Clause"
+      use: "Opus output"
+    - name: "libvorbis"
+      license: "BSD-3-Clause"
+      use: "Vorbis output"
+  excluded:
+    - "libx264"
+    - "libx265"
+    - "libfdk-aac"
+
+decoders:
+  note: "The provider build includes the FFmpeg decoders needed for common H.264/H.265/AV1/VP8/VP9/AAC/MP3/Opus/FLAC media. Exact registrations are recorded in each configure report."
+  hardware_acceleration:
+    - "VideoToolbox (macOS)"
+    - "D3D11VA/D3D12VA/DXVA2/Media Foundation (Windows)"
+    - "Vulkan Video (Linux)"
+
+demuxers_muxers:
+  containers:
+    - "mp4"
+    - "mkv"
+    - "webm"
+    - "ts"
+    - "mov"
+    - "flv"
+    - "hls"
+    - "dash"
+
+platforms:
+  windows-x64:
+    goos: "windows"
+    goarch: "amd64"
+    archive_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-win-x64.zip"
+    archive_format: "zip"
+    archive_sha256: "fd3473736674343cd1948eb45f28b46f377616432a5cc15eb896bdaabea506f2"
+    tool_paths:
+      ffmpeg: "ffmpeg.exe"
+      ffprobe: "ffprobe.exe"
+    extract_root: ""
+    configure_report_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-win-x64.configure.txt"
+    minimum_os: "Windows 10"
+  linux-x64:
+    goos: "linux"
+    goarch: "amd64"
+    archive_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-linux-x64.tar.gz"
+    archive_format: "tar.gz"
+    archive_sha256: "2612ed26322c864a7411c3578b74fe7f229127e6f9f906d3aa994937a4c9620e"
+    tool_paths:
+      ffmpeg: "ffmpeg"
+      ffprobe: "ffprobe"
+    extract_root: ""
+    configure_report_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-linux-x64.configure.txt"
+    minimum_os: "Linux glibc 2.35 (Ubuntu 22.04+/Debian 12+/RHEL 9+)"
+  darwin-x64:
+    goos: "darwin"
+    goarch: "amd64"
+    archive_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-macos-x64.tar.gz"
+    archive_format: "tar.gz"
+    archive_sha256: "b84b4515aaf2fe443a76445f02d05544a384dcd46cc6059fb8a1a4f9aaa3035d"
+    tool_paths:
+      ffmpeg: "ffmpeg"
+      ffprobe: "ffprobe"
+    extract_root: ""
+    configure_report_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-macos-x64.configure.txt"
+    minimum_os: "macOS 10.15 Catalina"
+    codesign_required: true
+  darwin-arm64:
+    goos: "darwin"
+    goarch: "arm64"
+    archive_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-macos-arm64.tar.gz"
+    archive_format: "tar.gz"
+    archive_sha256: "26f6269b117a51c5fdfd3a870c4e0a62b99f0575740a3933fc3d852f0a3f80b1"
+    tool_paths:
+      ffmpeg: "ffmpeg"
+      ffprobe: "ffprobe"
+    extract_root: ""
+    configure_report_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-macos-arm64.configure.txt"
+    minimum_os: "macOS 11 Big Sur"
+    codesign_required: true
+
+build_options:
+  required_policy_flags:
+    - "--disable-gpl"
+    - "--disable-nonfree"
+    - "--disable-version3"
+    - "--disable-autodetect"
+  packaging: "static ffmpeg and ffprobe executables; each archive contains only those two files"
+  configuration_source: "The complete per-target configure output is pinned by configure_report_url and must be reviewed with the release."
+
+source_distribution:
+  obligation: "Ship the LGPL-2.1-or-later notice and applicable third-party notices with every release. Keep the exact upstream source URL, release signature and provider configure reports available beside the release."
+  source_archive_url: "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz"
+  source_signature_url: "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz.asc"
+  source_revision: "n8.0.3"
+  build_revision: "ffmpeg-8.0.3-build4"
+  modified_source: false
+  source_offer: "Release materials link to the exact unmodified upstream source and the provider's per-target configuration audit."
+
+post_mvp_platforms:
+  - "linux-arm64: provider asset is available, but excluded from the current product launch matrix until separately tested and documented"
