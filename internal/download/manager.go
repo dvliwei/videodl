@@ -265,6 +265,15 @@ func (m *Manager) Create(req media.DownloadRequest, title string) (*Task, error)
 		return nil, ErrManagerClosed
 	}
 
+	profile := req.Profile
+	if profile == "" {
+		profile = media.ProfileOriginal
+	}
+	if _, ok := ffmpeg.GetPreset(profile); !ok {
+		return nil, newTaskError(media.ErrorCode("download.unknown_profile"),
+			fmt.Sprintf("unknown profile: %s", profile), nil)
+	}
+
 	id, err := newTaskID()
 	if err != nil {
 		return nil, err
@@ -281,11 +290,6 @@ func (m *Manager) Create(req media.DownloadRequest, title string) (*Task, error)
 	if err != nil {
 		cancel()
 		return nil, newTaskError("download.temp_create", "failed to create temp directory", err)
-	}
-
-	profile := req.Profile
-	if profile == "" {
-		profile = media.ProfileOriginal
 	}
 
 	task := &Task{
@@ -478,17 +482,19 @@ func (m *Manager) dispatch() {
 		m.queueMu.Unlock()
 
 		if m.closed.Load() {
-			task.mu.Lock()
-			if task.cancel != nil {
-				task.cancel()
+			m.cancelCollectedTask(task)
+			continue
+		}
+
+		task.mu.RLock()
+		alreadyTerminal := task.state == media.TaskCanceled || task.state == media.TaskFailed || task.state == media.TaskCompleted
+		ctxErr := task.ctx.Err()
+		task.mu.RUnlock()
+
+		if alreadyTerminal || ctxErr != nil {
+			if ctxErr != nil && !alreadyTerminal {
+				m.cancelCollectedTask(task)
 			}
-			task.state = media.TaskCanceled
-			if task.completedAt == nil {
-				now := time.Now()
-				task.completedAt = &now
-			}
-			task.mu.Unlock()
-			m.setState(task, media.TaskCanceled, "")
 			continue
 		}
 
@@ -504,6 +510,25 @@ func (m *Manager) dispatch() {
 	}
 }
 
+func (m *Manager) cancelCollectedTask(task *Task) {
+	task.mu.Lock()
+	wasTerminal := task.state == media.TaskCanceled || task.state == media.TaskFailed || task.state == media.TaskCompleted
+	if task.cancel != nil {
+		task.cancel()
+	}
+	if !wasTerminal {
+		task.state = media.TaskCanceled
+		if task.completedAt == nil {
+			now := time.Now()
+			task.completedAt = &now
+		}
+	}
+	task.mu.Unlock()
+	if !wasTerminal {
+		m.setState(task, media.TaskCanceled, "")
+	}
+}
+
 func (m *Manager) execute(task *Task) {
 	m.running.Add(1)
 	defer func() {
@@ -512,10 +537,23 @@ func (m *Manager) execute(task *Task) {
 		m.dispatch()
 	}()
 
+	task.mu.RLock()
+	state := task.state
+	ctx := task.ctx
+	task.mu.RUnlock()
+
+	if state == media.TaskCanceled || state == media.TaskFailed || state == media.TaskCompleted {
+		return
+	}
+	if err := ctx.Err(); err != nil {
+		m.setState(task, media.TaskCanceled, "")
+		return
+	}
+
 	m.setState(task, media.TaskPreparing, "preparing")
 
 	task.mu.RLock()
-	ctx := task.ctx
+	ctx = task.ctx
 	task.mu.RUnlock()
 
 	if err := ctx.Err(); err != nil {

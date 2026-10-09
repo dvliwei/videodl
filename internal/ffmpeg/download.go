@@ -77,7 +77,10 @@ func BuildDownloadArgs(opts DownloadOptions) ([]string, error) {
 
 	args = append(args, selectStreamArgs(opts)...)
 
-	preset, _ := GetPreset(opts.Profile)
+	preset, ok := GetPreset(opts.Profile)
+	if !ok {
+		return nil, fmt.Errorf("ffmpeg: download: unknown profile %q", opts.Profile)
+	}
 	args = append(args, preset.Args...)
 
 	if preset.StreamCopy {
