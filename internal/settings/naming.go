@@ -39,7 +39,7 @@ func ResolveConflict(targetPath string, strategy ConflictStrategy, fs FileSystem
 	case ConflictOverwrite:
 		return targetPath, nil
 	case ConflictSkip:
-		return "", &conflictError{path: targetPath}
+		return "", &ConflictError{Path: targetPath}
 	case ConflictAutoRename:
 		return autoRename(targetPath, fs)
 	default:

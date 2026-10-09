@@ -66,8 +66,8 @@ func TestResolveConflict_Skip(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected conflict error")
 	}
-	if _, ok := err.(*conflictError); !ok {
-		t.Errorf("expected *conflictError, got %T: %v", err, err)
+	if _, ok := err.(*ConflictError); !ok {
+		t.Errorf("expected *ConflictError, got %T: %v", err, err)
 	}
 }
 

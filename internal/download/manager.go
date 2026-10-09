@@ -20,10 +20,11 @@ const (
 )
 
 type ManagerConfig struct {
-	MaxConcurrent int
-	MaxQueueSize  int
-	MaxAttempts   int
-	BaseTempDir   string
+	MaxConcurrent   int
+	MaxQueueSize    int
+	MaxAttempts     int
+	BaseTempDir     string
+	PublisherConfig PublisherConfig
 }
 
 func (c ManagerConfig) withDefaults() ManagerConfig {
@@ -56,8 +57,9 @@ type Task struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	tempDir    string
-	outputPath string
+	tempDir     string
+	stagingFile string
+	outputPath  string
 
 	errorCode    string
 	errorMessage string
@@ -172,8 +174,16 @@ func (t *Task) tempDirectory() string {
 	return t.tempDir
 }
 
+func (t *Task) StagingFile() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.stagingFile
+}
+
 type Manager struct {
 	cfg ManagerConfig
+
+	publisher *Publisher
 
 	mu      sync.RWMutex
 	tasks   map[string]*Task
@@ -193,10 +203,11 @@ type Manager struct {
 func NewManager(cfg ManagerConfig) *Manager {
 	cfg = cfg.withDefaults()
 	return &Manager{
-		cfg:   cfg,
-		tasks: make(map[string]*Task),
-		sem:   make(chan struct{}, cfg.MaxConcurrent),
-		queue: make([]*Task, 0),
+		cfg:       cfg,
+		publisher: NewPublisher(cfg.PublisherConfig),
+		tasks:     make(map[string]*Task),
+		sem:       make(chan struct{}, cfg.MaxConcurrent),
+		queue:     make([]*Task, 0),
 	}
 }
 
@@ -480,6 +491,7 @@ func (m *Manager) execute(task *Task) {
 	task.mu.RUnlock()
 
 	if err := ctx.Err(); err != nil {
+		m.cleanupTaskArtifacts(task)
 		m.setState(task, media.TaskCanceled, "")
 		return
 	}
@@ -493,6 +505,7 @@ func (m *Manager) execute(task *Task) {
 			task.setError(media.ErrCodeCanceled, "task canceled")
 			m.setState(task, media.TaskCanceled, "")
 		} else {
+			m.cleanupTaskArtifacts(task)
 			task.setError(media.ErrCodeUnknown, err.Error())
 			m.setState(task, media.TaskFailed, "")
 		}
@@ -505,6 +518,7 @@ func (m *Manager) execute(task *Task) {
 	task.mu.RUnlock()
 
 	if ctx.Err() != nil {
+		m.cleanupTaskArtifacts(task)
 		task.setError(media.ErrCodeCanceled, "task canceled")
 		m.setState(task, media.TaskCanceled, "")
 		return
@@ -512,6 +526,21 @@ func (m *Manager) execute(task *Task) {
 
 	m.setState(task, media.TaskCompleted, "")
 	m.log("task %s completed successfully", task.ID())
+}
+
+func (m *Manager) cleanupTaskArtifacts(task *Task) {
+	task.mu.Lock()
+	staging := task.stagingFile
+	tempDir := task.tempDir
+	task.mu.Unlock()
+
+	if staging != "" {
+		_ = os.Remove(staging)
+	}
+
+	if tempDir != "" {
+		_ = os.RemoveAll(tempDir)
+	}
 }
 
 func (m *Manager) runPipeline(ctx context.Context, task *Task) error {
@@ -553,12 +582,66 @@ func (m *Manager) runPipeline(ctx context.Context, task *Task) error {
 	return m.runFinishPhase(ctx, task)
 }
 
+func (m *Manager) ensureStagingFile(task *Task, suffix string) error {
+	task.mu.RLock()
+	existing := task.stagingFile
+	task.mu.RUnlock()
+
+	if existing != "" {
+		return nil
+	}
+
+	task.mu.RLock()
+	tempDir := task.tempDir
+	task.mu.RUnlock()
+
+	if tempDir == "" {
+		baseDir := m.cfg.BaseTempDir
+		if baseDir == "" {
+			baseDir = os.TempDir()
+		}
+		dir, err := settings.UniqueTempDir(baseDir, "videodl_task_")
+		if err != nil {
+			return newTaskError("download.staging_dir", "failed to create temp dir", err)
+		}
+		task.mu.Lock()
+		task.tempDir = dir
+		task.mu.Unlock()
+		tempDir = dir
+	}
+
+	stagingPath, err := settings.UniqueTempPath(tempDir, "staging_", suffix)
+	if err != nil {
+		return newTaskError("download.staging_path", "failed to create staging path", err)
+	}
+
+	f, err := os.Create(stagingPath)
+	if err != nil {
+		return newTaskError("download.staging_create", "failed to create staging file", err)
+	}
+	f.WriteString("mock video data for ")
+	f.WriteString(task.ID())
+	f.WriteString("\n")
+	f.Close()
+
+	task.mu.Lock()
+	task.stagingFile = stagingPath
+	task.mu.Unlock()
+
+	return nil
+}
+
 func (m *Manager) runDownloadPhase(ctx context.Context, task *Task) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
+
+	if err := m.ensureStagingFile(task, ".part"); err != nil {
+		return err
+	}
+
 	for i := 0; i <= 20; i++ {
 		select {
 		case <-ctx.Done():
@@ -567,7 +650,8 @@ func (m *Manager) runDownloadPhase(ctx context.Context, task *Task) error {
 		}
 		time.Sleep(10 * time.Millisecond)
 		progress := float64(i) * 5.0
-		task.updateProgress(&progress, 1024, nil)
+		var size int64 = 10240
+		task.updateProgress(&progress, 1024, &size)
 	}
 	return nil
 }
@@ -614,14 +698,37 @@ func (m *Manager) runFinishPhase(ctx context.Context, task *Task) error {
 	}
 
 	task.mu.RLock()
-	outputPath := task.Request.OutputPath
+	stagingFile := task.stagingFile
+	targetPath := task.Request.OutputPath
+	tempDir := task.tempDir
 	task.mu.RUnlock()
 
-	if outputPath != "" {
+	if stagingFile == "" {
+		return newTaskError("download.publish.no_staging",
+			"no staging file produced by pipeline", nil)
+	}
+
+	if targetPath == "" {
+		targetPath = defaultOutputPath(task.Title, ".mp4")
+	}
+
+	resolvedPath, err := m.publisher.Publish(stagingFile, targetPath)
+	if err != nil {
+		return err
+	}
+
+	task.mu.Lock()
+	task.outputPath = resolvedPath
+	task.stagingFile = ""
+	task.mu.Unlock()
+
+	if tempDir != "" {
+		_ = os.RemoveAll(tempDir)
 		task.mu.Lock()
-		task.outputPath = outputPath
+		task.tempDir = ""
 		task.mu.Unlock()
 	}
+
 	return nil
 }
 
@@ -786,4 +893,11 @@ func (m *Manager) Config() ManagerConfig {
 
 func (m *Manager) IsClosed() bool {
 	return m.closed.Load()
+}
+
+func defaultOutputPath(title, ext string) string {
+	if title == "" {
+		title = "video"
+	}
+	return title + ext
 }

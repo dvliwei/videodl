@@ -21,12 +21,12 @@ func (e *filesystemError) Error() string {
 
 func (e *filesystemError) Unwrap() error { return e.err }
 
-type conflictError struct {
-	path string
+type ConflictError struct {
+	Path string
 }
 
-func (e *conflictError) Error() string {
-	return fmt.Sprintf("settings: file already exists at %s", e.path)
+func (e *ConflictError) Error() string {
+	return fmt.Sprintf("settings: file already exists at %s", e.Path)
 }
 
 type NotExistError struct {
