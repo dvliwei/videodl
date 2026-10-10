@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"videodl/internal/proxy"
 
 	"videodl/internal/media"
 )
@@ -61,6 +62,10 @@ func BuildDownloadArgs(opts DownloadOptions) ([]string, error) {
 	args = append(args,
 		"-protocol_whitelist", protocolWhitelistForInputs(inputs),
 	)
+
+	if proxyURL := proxy.ResolveSystemProxyURL(); proxyURL != "" {
+		args = append(args, "-http_proxy", proxyURL)
+	}
 
 	args = append(args,
 		"-progress", "pipe:1",
@@ -189,7 +194,7 @@ func containerFlags(outputPath string) []string {
 }
 
 const (
-	networkProtocols = "http,https,tcp,tls,crypto"
+	networkProtocols = "http,https,tcp,tls,crypto,httpproxy"
 	allProtocols     = "file," + networkProtocols
 )
 

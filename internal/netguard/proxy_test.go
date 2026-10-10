@@ -62,6 +62,119 @@ func TestProxyForwardsHTTPAndValidatesHost(t *testing.T) {
 	}
 }
 
+func TestProxyUsesConfiguredUpstreamProxyForHTTP(t *testing.T) {
+	var gotURL string
+	upstreamProxy := newIPv4Server(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL.String()
+		_, _ = io.WriteString(w, "through-upstream")
+	}))
+	defer upstreamProxy.Close()
+
+	validator := &recordingValidator{}
+	proxy, err := NewProxy(context.Background(), validator, ProxyConfig{
+		UpstreamProxyURL: upstreamProxy.URL,
+		ConnectTimeout:   time.Second,
+		TotalTimeout:     time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(mustURL(t, proxy.URL()))}}
+	resp, err := client.Get("http://public.example/video")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "through-upstream" {
+		t.Fatalf("body = %q", body)
+	}
+	if gotURL != "http://public.example/video" {
+		t.Fatalf("upstream proxy URL = %q", gotURL)
+	}
+}
+
+func TestProxyUsesConfiguredUpstreamProxyForCONNECT(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	requestSeen := make(chan string, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		request, readErr := http.ReadRequest(reader)
+		if readErr != nil {
+			return
+		}
+		requestSeen <- request.Method + " " + request.Host
+		_, _ = io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n")
+		_, _ = io.Copy(conn, conn)
+	}()
+
+	validator := &recordingValidator{}
+	proxy, err := NewProxy(context.Background(), validator, ProxyConfig{
+		UpstreamProxyURL: "http://" + listener.Addr().String(),
+		ConnectTimeout:   time.Second,
+		TotalTimeout:     time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(proxy.URL(), "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, _ = fmt.Fprintf(conn, "CONNECT public.example:443 HTTP/1.1\r\nHost: public.example:443\r\n\r\n")
+	response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		response.Body.Close()
+		t.Fatalf("CONNECT response status = %d", response.StatusCode)
+	}
+	_ = response.Body.Close()
+
+	select {
+	case request := <-requestSeen:
+		if request != "CONNECT public.example:443" {
+			t.Fatalf("upstream CONNECT request = %q", request)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("upstream proxy did not receive CONNECT")
+	}
+
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, 4)
+	if _, err := io.ReadFull(conn, got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "ping" {
+		t.Fatalf("echo = %q", got)
+	}
+}
+
+func TestProxyRejectsUnsupportedUpstreamProxy(t *testing.T) {
+	_, err := NewProxy(context.Background(), &recordingValidator{}, ProxyConfig{UpstreamProxyURL: "socks5://127.0.0.1:1080"})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "http") {
+		t.Fatalf("NewProxy error = %v, want HTTP upstream proxy error", err)
+	}
+}
+
 func TestProxyRejectsBeforeDialAndRedirectTarget(t *testing.T) {
 	validator := &recordingValidator{err: errors.New("blocked address")}
 	proxy, err := NewProxy(context.Background(), validator, ProxyConfig{ConnectTimeout: time.Second, TotalTimeout: time.Second})

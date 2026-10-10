@@ -22,7 +22,7 @@ record_fail() { FAIL=$((FAIL + 1)); echo "  FAIL: $*"; }
 [[ -f "$RESOURCES_DIR/CREDITS.md" ]] || warn "CREDITS.md not found"
 
 log "Checking license files"
-for f in licenses/FFmpeg-COPYING.LGPLv2.1 licenses/THIRD-PARTY-NOTICES.md; do
+for f in licenses/FFmpeg-COPYING.LGPLv2.1 licenses/THIRD-PARTY-NOTICES.md licenses/OPENSSL-LICENSE.txt licenses/LIBVPL-LICENSE.txt licenses/LIBWINPTHREAD-LICENSE.txt licenses/LIBOPENH264-LICENSE.txt licenses/GCC-LICENSE.txt; do
     [[ -f "$RESOURCES_DIR/$f" ]] && record_pass "license present: $f" || record_fail "missing license: $f"
 done
 
@@ -127,22 +127,35 @@ for platform in $PLATFORMS; do
     if [[ "$platform" == "$HOST_OS-$HOST_ARCH" ]]; then
         echo ""
         log "Running ffmpeg -version for host platform"
+        case "$platform" in
+            windows-x64|darwin-x64|darwin-arm64) expected_version_pattern='8\.1\.' ;;
+            linux-x64) expected_version_pattern='8\.0\.' ;;
+            *) expected_version_pattern='8\.[01]\.' ;;
+        esac
         if "$ff" -version >/tmp/ffmpeg_ver.txt 2>&1; then
             ver_line="$(head -n1 /tmp/ffmpeg_ver.txt)"
             echo "  $ver_line"
-            if echo "$ver_line" | grep -qE 'ffmpeg version n?8\.0\.'; then
-                record_pass "ffmpeg version 8.0.x detected"
+            if echo "$ver_line" | grep -qE "ffmpeg version n?$expected_version_pattern"; then
+                record_pass "ffmpeg version matched platform requirement"
             else
                 record_fail "unexpected ffmpeg version output: $ver_line"
             fi
         else
             record_fail "ffmpeg -version failed"
         fi
+        log "Checking HTTPS/TLS protocol support for host platform"
+        if protocols="$($ff -protocols 2>&1)" && \
+            echo "$protocols" | grep -qE '(^|[[:space:]])https([[:space:]]|$)' && \
+            echo "$protocols" | grep -qE '(^|[[:space:]])tls([[:space:]]|$)'; then
+            record_pass "ffmpeg supports https and tls protocols"
+        else
+            record_fail "ffmpeg lacks required https/tls protocols"
+        fi
         if "$fp" -version >/tmp/ffprobe_ver.txt 2>&1; then
             ver_line="$(head -n1 /tmp/ffprobe_ver.txt)"
             echo "  $ver_line"
-            if echo "$ver_line" | grep -qE 'ffprobe version n?8\.0\.'; then
-                record_pass "ffprobe version 8.0.x detected"
+            if echo "$ver_line" | grep -qE "ffprobe version n?$expected_version_pattern"; then
+                record_pass "ffprobe version matched platform requirement"
             else
                 record_fail "unexpected ffprobe version output: $ver_line"
             fi

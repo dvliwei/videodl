@@ -121,12 +121,11 @@ for platform in $PLATFORMS; do
 
     find "$target_dir" -maxdepth 1 -type f -delete
 
-    if [[ "$platform" == windows-* ]]; then
-        cp "$source_root/ffmpeg.exe" "$target_dir/ffmpeg.exe"
-        cp "$source_root/ffprobe.exe" "$target_dir/ffprobe.exe"
-    else
-        cp "$source_root/ffmpeg" "$target_dir/ffmpeg"
-        cp "$source_root/ffprobe" "$target_dir/ffprobe"
+    # Some TLS-capable Windows builds need runtime DLLs next to the
+    # executables. Copy the complete two-tool archive instead of silently
+    # dropping those dependencies.
+    cp -R "$source_root"/. "$target_dir"/
+    if [[ "$platform" != windows-* ]]; then
         chmod +x "$target_dir/ffmpeg" "$target_dir/ffprobe"
     fi
 

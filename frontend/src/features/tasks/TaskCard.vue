@@ -1,10 +1,11 @@
 <script setup>
 import { computed } from 'vue'
+import { t } from '../../i18n/index.js'
 import {
   formatBytes,
   formatSpeed,
   formatETA,
-  TASK_STATE_LABELS,
+  taskStateLabel,
   ACTIVE_STATES,
   TERMINAL_STATES
 } from '../../shared/format.js'
@@ -22,7 +23,7 @@ const props = defineProps({
 
 const emit = defineEmits(['error'])
 
-const stateLabel = computed(() => TASK_STATE_LABELS[props.task.state] || props.task.state)
+const stateLabel = computed(() => taskStateLabel(props.task.state))
 
 const isActive = computed(() => ACTIVE_STATES.has(props.task.state))
 const isTerminal = computed(() => TERMINAL_STATES.has(props.task.state))
@@ -57,27 +58,27 @@ const progressBarWidth = computed(() => {
 
 function handleCancel() {
   cancelTask(props.task.id).catch((err) => {
-    emit('error', { title: '取消任务失败', message: err.message || String(err) })
+    emit('error', { title: t('task.cancelFailTitle'), message: err.message || String(err) })
   })
 }
 
 function handleRetry() {
   retryTask(props.task.id).catch((err) => {
-    emit('error', { title: '重试任务失败', message: err.message || String(err) })
+    emit('error', { title: t('task.retryFailTitle'), message: err.message || String(err) })
   })
 }
 
 function handleOpenFile() {
   if (!props.task.outputPath) return
   openPath(props.task.outputPath).catch((err) => {
-    emit('error', { title: '打开文件失败', message: err.message || String(err) })
+    emit('error', { title: t('task.openFileFailTitle'), message: err.message || String(err) })
   })
 }
 
 function handleOpenFolder() {
   if (!props.task.outputPath) return
   openContainingFolder(props.task.outputPath).catch((err) => {
-    emit('error', { title: '定位文件失败', message: err.message || String(err) })
+    emit('error', { title: t('task.openFolderFailTitle'), message: err.message || String(err) })
   })
 }
 
@@ -103,7 +104,7 @@ function pathDir(path) {
   }">
     <header class="task-header">
       <div class="task-title-wrap">
-        <h4 class="task-title" :title="task.title">{{ task.title || '未命名任务' }}</h4>
+        <h4 class="task-title" :title="task.title">{{ task.title || t('task.unnamed') }}</h4>
         <span class="task-state-badge" :class="`state-${task.state}`">{{ stateLabel }}</span>
       </div>
       <div class="task-id" :title="task.id">{{ task.id.slice(0, 8) }}</div>
@@ -119,7 +120,7 @@ function pathDir(path) {
           >
             {{ progressPercent }}%
           </div>
-          <div v-else class="progress-label progress-label--indeterminate">计算中…</div>
+          <div v-else class="progress-label progress-label--indeterminate">{{ t('task.calculating') }}</div>
         </div>
 
         <div class="task-stats">
@@ -134,7 +135,7 @@ function pathDir(path) {
           </template>
           <template v-if="etaDisplay">
             <span class="stat-sep">·</span>
-            <span class="stat">约 {{ etaDisplay }}</span>
+            <span class="stat">{{ t('task.etaPrefix', { eta: etaDisplay }) }}</span>
           </template>
           <template v-if="task.phase && task.phase !== task.state">
             <span class="stat-sep">·</span>
@@ -145,7 +146,7 @@ function pathDir(path) {
 
       <template v-else-if="isCompleted && task.outputPath">
         <div class="task-output">
-          <span class="task-output-label">已保存到</span>
+          <span class="task-output-label">{{ t('task.savedTo') }}</span>
           <span class="task-output-path" :title="task.outputPath">{{ pathLeaf(task.outputPath) }}</span>
         </div>
         <div class="task-stats">
@@ -166,7 +167,7 @@ function pathDir(path) {
       <template v-else-if="isFailed || isCanceled">
         <div class="task-error task-error--empty">
           <span class="task-error-icon" aria-hidden="true">!</span>
-          <span class="task-error-text">{{ isCanceled ? '任务已取消' : '任务失败' }}</span>
+          <span class="task-error-text">{{ isCanceled ? t('task.canceled') : t('task.failed') }}</span>
         </div>
       </template>
     </div>
@@ -178,7 +179,7 @@ function pathDir(path) {
         class="task-btn task-btn--secondary"
         @click="handleCancel"
       >
-        取消
+        {{ t('common.cancel') }}
       </button>
       <button
         v-if="isRetryable"
@@ -186,7 +187,7 @@ function pathDir(path) {
         class="task-btn task-btn--primary"
         @click="handleRetry"
       >
-        重试
+        {{ t('common.retry') }}
       </button>
       <button
         v-if="isCompleted && task.outputPath"
@@ -194,7 +195,7 @@ function pathDir(path) {
         class="task-btn task-btn--secondary"
         @click="handleOpenFile"
       >
-        打开文件
+        {{ t('task.openFile') }}
       </button>
       <button
         v-if="isCompleted && task.outputPath"
@@ -202,7 +203,7 @@ function pathDir(path) {
         class="task-btn task-btn--secondary"
         @click="handleOpenFolder"
       >
-        打开目录
+        {{ t('task.openFolder') }}
       </button>
     </footer>
   </article>

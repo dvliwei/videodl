@@ -1,26 +1,27 @@
 const VALID_SCHEMES = ['http:', 'https:']
 
+// 返回的 reason 是 i18n 键（见 validate.*），由调用方用 t() 渲染为当前语言文案。
 export function validateUrl(input) {
   const trimmed = input.trim()
-  if (!trimmed) return { ok: false, reason: '请输入网页地址' }
+  if (!trimmed) return { ok: false, reason: 'validate.enterUrl' }
 
   let url
   try {
     url = new URL(trimmed)
   } catch {
-    return { ok: false, reason: '地址格式不正确' }
+    return { ok: false, reason: 'validate.invalidFormat' }
   }
 
   if (!VALID_SCHEMES.includes(url.protocol)) {
-    return { ok: false, reason: '仅支持 http 和 https 地址' }
+    return { ok: false, reason: 'validate.schemeOnly' }
   }
 
   if (!url.hostname) {
-    return { ok: false, reason: '地址缺少主机名' }
+    return { ok: false, reason: 'validate.noHost' }
   }
 
   if (url.username || url.password) {
-    return { ok: false, reason: '地址中不应包含用户凭据' }
+    return { ok: false, reason: 'validate.noCredential' }
   }
 
   return { ok: true, url: trimmed }

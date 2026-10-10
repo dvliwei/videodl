@@ -1,11 +1,13 @@
 package netguard
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +21,9 @@ type ProxyConfig struct {
 	MaxConnections int
 	ConnectTimeout time.Duration
 	TotalTimeout   time.Duration
+	// UpstreamProxyURL optionally routes outbound traffic through an HTTP
+	// proxy. The target host is still validated before this proxy is used.
+	UpstreamProxyURL string
 }
 
 type Proxy struct {
@@ -27,6 +32,7 @@ type Proxy struct {
 	listener  net.Listener
 	server    *http.Server
 	transport *http.Transport
+	upstream  *url.URL
 	semaphore chan struct{}
 	url       string
 	closeOnce sync.Once
@@ -48,6 +54,10 @@ func NewProxy(ctx context.Context, validator AddressValidator, cfg ProxyConfig) 
 	if cfg.TotalTimeout <= 0 {
 		cfg.TotalTimeout = 30 * time.Second
 	}
+	upstream, err := parseUpstreamProxyURL(cfg.UpstreamProxyURL)
+	if err != nil {
+		return nil, err
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("netguard: listen on loopback: %w", err)
@@ -55,12 +65,13 @@ func NewProxy(ctx context.Context, validator AddressValidator, cfg ProxyConfig) 
 	p := &Proxy{
 		validator: validator,
 		cfg:       cfg,
+		upstream:  upstream,
 		listener:  listener,
 		url:       "http://" + listener.Addr().String(),
 		semaphore: make(chan struct{}, cfg.MaxConnections),
 	}
 	p.transport = &http.Transport{
-		Proxy:                 nil,
+		Proxy:                 http.ProxyURL(upstream),
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          cfg.MaxConnections,
 		MaxIdleConnsPerHost:   cfg.MaxConnections,
@@ -68,6 +79,9 @@ func NewProxy(ctx context.Context, validator AddressValidator, cfg ProxyConfig) 
 		TLSHandshakeTimeout:   cfg.ConnectTimeout,
 		ResponseHeaderTimeout: cfg.TotalTimeout,
 		DialContext: func(dialCtx context.Context, network, address string) (net.Conn, error) {
+			if p.isUpstreamAddress(address) {
+				return p.dialUpstream(dialCtx, network, address)
+			}
 			return p.dial(dialCtx, network, address)
 		},
 	}
@@ -166,7 +180,16 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(req.Context(), p.cfg.ConnectTimeout)
 	defer cancel()
-	upstream, err := p.dial(ctx, "tcp", net.JoinHostPort(host, port))
+	target = net.JoinHostPort(host, port)
+	var upstream net.Conn
+	if p.upstream != nil {
+		upstream, err = p.dialUpstream(ctx, "tcp", p.upstream.Host)
+		if err == nil {
+			upstream, err = p.establishUpstreamConnect(upstream, target)
+		}
+	} else {
+		upstream, err = p.dial(ctx, "tcp", target)
+	}
 	if err != nil {
 		http.Error(w, "upstream connect failed", http.StatusBadGateway)
 		return
@@ -191,6 +214,33 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 	_ = client.Close()
 }
 
+func (p *Proxy) establishUpstreamConnect(conn net.Conn, target string) (net.Conn, error) {
+	reader := bufio.NewReader(conn)
+	if _, err := fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Connection: Keep-Alive\r\n\r\n", target, target); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	response, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		_ = conn.Close()
+		return nil, fmt.Errorf("upstream proxy CONNECT returned %s", response.Status)
+	}
+	// ReadResponse may have buffered bytes that belong to the tunneled
+	// connection. Keep those bytes visible after the HTTP handshake.
+	return &bufferedConn{Conn: conn, reader: reader}, nil
+}
+
+type bufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c *bufferedConn) Read(p []byte) (int, error) { return c.reader.Read(p) }
+
 func (p *Proxy) dial(ctx context.Context, network, address string) (net.Conn, error) {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
@@ -200,6 +250,30 @@ func (p *Proxy) dial(ctx context.Context, network, address string) (net.Conn, er
 		return nil, err
 	}
 	return (&net.Dialer{Timeout: p.cfg.ConnectTimeout, KeepAlive: 30 * time.Second}).DialContext(ctx, network, address)
+}
+
+func (p *Proxy) dialUpstream(ctx context.Context, network, address string) (net.Conn, error) {
+	return (&net.Dialer{Timeout: p.cfg.ConnectTimeout, KeepAlive: 30 * time.Second}).DialContext(ctx, network, address)
+}
+
+func (p *Proxy) isUpstreamAddress(address string) bool {
+	return p.upstream != nil && address == p.upstream.Host
+}
+
+func parseUpstreamProxyURL(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Scheme, "http") || u.Hostname() == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return nil, fmt.Errorf("netguard: upstream proxy must be an HTTP URL without credentials or a non-root path")
+	}
+	u.Scheme = "http"
+	if u.Port() == "" {
+		u.Host = net.JoinHostPort(u.Hostname(), "80")
+	}
+	return u, nil
 }
 
 func (p *Proxy) acquire(ctx context.Context) bool {

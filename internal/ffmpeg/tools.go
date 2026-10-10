@@ -262,9 +262,9 @@ func ValidateVersion(versionOutput string) error {
 		return fmt.Errorf("ffmpeg: unable to parse version number from %q: %w", m[0], err)
 	}
 
-	if major != ExpectedVersionMajor || minor != ExpectedVersionMinor {
-		return fmt.Errorf("ffmpeg: version mismatch: got %d.%d, want %d.%d",
-			major, minor, ExpectedVersionMajor, ExpectedVersionMinor)
+	if major != ExpectedVersionMajor || (minor != 0 && minor != 1) {
+		return fmt.Errorf("ffmpeg: version mismatch: got %d.%d, want 8.0.x or 8.1.x",
+			major, minor)
 	}
 
 	return nil

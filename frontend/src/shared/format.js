@@ -1,3 +1,5 @@
+import { t } from '../i18n/index.js'
+
 export function formatDuration(seconds) {
   if (seconds == null || isNaN(seconds) || !isFinite(seconds)) return null
   const s = Math.round(seconds)
@@ -56,15 +58,21 @@ export function formatETA(remainingBytes, bytesPerSecond) {
   return `${h}h ${rem}m`
 }
 
-export const TASK_STATE_LABELS = {
-  queued: '等待中',
-  preparing: '准备中',
-  downloading: '下载中',
-  merging: '封装中',
-  transcoding: '转码中',
-  completed: '已完成',
-  canceled: '已取消',
-  failed: '失败'
+// 任务状态到本地化标签。旧的对象常量改为函数，随当前语言实时更新。
+const STATE_KEYS = {
+  queued: 'task.state.queued',
+  preparing: 'task.state.preparing',
+  downloading: 'task.state.downloading',
+  merging: 'task.state.merging',
+  transcoding: 'task.state.transcoding',
+  completed: 'task.state.completed',
+  canceled: 'task.state.canceled',
+  failed: 'task.state.failed'
+}
+
+export function taskStateLabel(state) {
+  const key = STATE_KEYS[state]
+  return key ? t(key) : state
 }
 
 export const ACTIVE_STATES = new Set(['queued', 'preparing', 'downloading', 'merging', 'transcoding'])

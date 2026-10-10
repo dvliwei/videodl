@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { t, setLocale, activeLocale, SUPPORTED_LOCALES } from './i18n/index.js'
 import AnalyzePanel from './features/analyze/AnalyzePanel.vue'
 import TaskList from './features/tasks/TaskList.vue'
 import {
@@ -21,10 +22,12 @@ import {
 } from './features/settings/status.js'
 import YTDLPStatus from './features/settings/YTDLPStatus.vue'
 
-const PROFILE_OPTIONS = [
-  { value: 'original', label: '原始质量（无损封装）' },
-  { value: 'mp4-h264-aac', label: '兼容 MP4 (H.264/AAC)' }
-]
+const profileOptions = computed(() => [
+  { value: 'original', label: t('dir.profileOriginal') },
+  { value: 'mp4-h264-aac', label: t('dir.profileCompat') }
+])
+
+const brandInitial = computed(() => (t('app.brand') || 'V').charAt(0))
 
 const defaultDir = ref('')
 const isDefaultDir = ref(false)
@@ -114,69 +117,82 @@ function clearDownloadError() {
 <template>
   <main class="app-shell">
     <header class="app-header">
-      <div class="brand" aria-label="VideoDL">
-        <span class="brand-mark" aria-hidden="true">V</span>
-        <span>VideoDL</span>
+      <div class="brand" :aria-label="t('app.brand')">
+        <span class="brand-mark" aria-hidden="true">{{ brandInitial }}</span>
+        <span>{{ t('app.brand') }}</span>
       </div>
 
-      <div v-if="isWailsAvailable() && defaultDir" class="header-controls">
-        <div class="dir-hint" aria-live="polite">
-          <span class="dir-hint-label">下载目录</span>
+      <label class="locale-switcher" aria-label="Language">
+        <span class="sr-only">{{ t('app.language') }}</span>
+        <select :value="activeLocale" @change="(e) => setLocale(e.target.value)">
+          <option v-for="loc in SUPPORTED_LOCALES" :key="loc.value" :value="loc.value">
+            {{ loc.label }}
+          </option>
+        </select>
+      </label>
+
+      <div v-if="isWailsAvailable() && defaultDir" class="settings-toolbar" :aria-label="t('dir.settings')">
+        <div class="setting-item dir-setting" aria-live="polite">
+          <span class="setting-label">{{ t('dir.label') }}</span>
           <span class="dir-hint-path" :title="defaultDir">{{ defaultDir }}</span>
-          <span v-if="isDefaultDir" class="dir-hint-badge">默认</span>
+          <span v-if="isDefaultDir" class="dir-hint-badge">{{ t('dir.defaultBadge') }}</span>
           <button
             type="button"
             class="dir-change-btn"
             @click="openDirectoryDialog"
             :disabled="dirHintLoading"
           >
-            更改
+            {{ t('dir.change') }}
           </button>
         </div>
 
-        <div class="profile-select">
-          <label class="profile-label" for="profile-select">输出格式</label>
+        <div class="setting-divider" aria-hidden="true"></div>
+
+        <div class="setting-item format-setting">
+          <label class="setting-label" for="profile-select">{{ t('dir.outputFormat') }}</label>
           <select id="profile-select" v-model="selectedProfile" class="profile-dropdown">
-            <option v-for="opt in PROFILE_OPTIONS" :key="opt.value" :value="opt.value">
+            <option v-for="opt in profileOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
             </option>
           </select>
         </div>
 
-        <label class="save-as-toggle">
+        <div class="setting-divider" aria-hidden="true"></div>
+
+        <label class="setting-item save-as-toggle">
           <input type="checkbox" v-model="saveAsMode" />
-          <span>下载时另存为…</span>
+          <span>{{ t('dir.saveAsToggle') }}</span>
         </label>
       </div>
 
-      <span v-else class="header-caption">桌面视频下载器</span>
+      <span v-else class="header-caption">{{ t('app.desktopVideoDownloader') }}</span>
     </header>
 
     <section class="workspace" aria-labelledby="page-title">
       <div class="intro">
-        <p class="eyebrow">VIDEO DOWNLOADER</p>
-        <h1 id="page-title">从网页中找到视频</h1>
-        <p class="intro-copy">粘贴公开网页地址，分析可用的视频资源。</p>
+        <p class="eyebrow">{{ t('app.eyebrow') }}</p>
+        <h1 id="page-title">{{ t('app.h1') }}</h1>
+        <p class="intro-copy">{{ t('app.introCopy') }}</p>
       </div>
 
       <div v-if="showFirstTimePrompt" class="first-run-banner" role="status">
         <div class="first-run-content">
           <span class="first-run-icon" aria-hidden="true">ⓘ</span>
           <div class="first-run-text">
-            <strong>首次使用：设置下载目录</strong>
-            <span>当前使用默认目录 {{ defaultDir }}。点击更改以指定自定义位置。</span>
+            <strong>{{ t('dir.firstRunTitle') }}</strong>
+            <span>{{ t('dir.firstRunBody', { dir: defaultDir }) }}</span>
           </div>
-          <button type="button" class="first-run-btn" @click="openDirectoryDialog">选择目录</button>
+          <button type="button" class="first-run-btn" @click="openDirectoryDialog">{{ t('dir.choose') }}</button>
         </div>
       </div>
 
       <div v-if="dirLoadError" class="error-banner" role="alert">
-        <span>目录操作失败：{{ dirLoadError }}</span>
+        <span>{{ t('dir.operationFailed', { msg: dirLoadError }) }}</span>
         <button type="button" class="banner-close" @click="dirLoadError = null">×</button>
       </div>
 
       <div v-if="downloadError" class="error-banner" role="alert">
-        <span>下载失败：{{ downloadError }}</span>
+        <span>{{ t('common.downloadFailed', { msg: downloadError }) }}</span>
         <button type="button" class="banner-close" @click="clearDownloadError">×</button>
       </div>
 
@@ -192,8 +208,8 @@ function clearDownloadError() {
     </section>
 
     <footer class="app-footer">
-      <span>支持公开访问且非 DRM 保护的视频资源</span>
-      <span>FFmpeg 将随应用提供</span>
+      <span>{{ t('app.footerScope') }}</span>
+      <span>{{ t('app.footerFFmpeg') }}</span>
     </footer>
   </main>
 </template>

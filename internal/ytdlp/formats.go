@@ -60,7 +60,8 @@ func MapInfoToCandidate(info *Info) (media.MediaCandidate, error) {
 	var first Format
 	hasFirst := false
 	for index, format := range info.Formats {
-		if format.URL == "" || format.FormatID == "" {
+		if format.URL == "" || format.FormatID == "" ||
+			(!playableCodec(format.VCodec) && !playableCodec(format.ACodec)) {
 			continue
 		}
 		if !hasFirst {

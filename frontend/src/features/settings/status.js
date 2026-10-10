@@ -1,5 +1,6 @@
-export const YTDLP_PHASE = Object.freeze({
-  IDLE: 'idle',
+import { t } from '../../i18n/index.js'
+
+export const YTDLP_PHASE = Object.freeze({  IDLE: 'idle',
   CHECKING: 'checking',
   UPDATING: 'updating',
   READY: 'ready',
@@ -41,9 +42,9 @@ export function isUpdateDisabled(state) {
 
 export function formatYTDLPSource(status) {
   switch (status?.source) {
-    case 'bundled': return '随应用提供'
-    case 'user-update': return '用户更新'
-    default: return '不可用'
+    case 'bundled': return t('ytdlp.source.bundled')
+    case 'user-update': return t('ytdlp.source.userUpdate')
+    default: return t('ytdlp.source.unavailable')
   }
 }
 

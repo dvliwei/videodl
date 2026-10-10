@@ -80,7 +80,7 @@
 ## 6. FFmpeg 分发要求
 
 - 首发发布矩阵：Windows x86_64、macOS x86_64/ARM64、Linux x86_64。Linux ARM64 可在首发后扩展，除非实际构建/测试能力验证后纳入。
-- 当前固定版本为 FFmpeg 8.0.3，构建发行标签为 `ffmpeg-8.0.3-build4`，来源、四个平台归档 SHA-256、配置审计链接和编码器集合见 `build/resources/ffmpeg/manifest.yaml`。
+- macOS/Windows 当前使用 FFmpeg 8.1.2；发布资源必须支持 `https` 与 `tls` 输入协议，macOS 最低版本为 12。Linux 资源暂不在本次验证范围内。`make ffmpeg-verify` 会检查当前主机资源的协议能力。
 - 当前发行构建使用 `--disable-gpl`、`--disable-nonfree`、`--disable-version3` 和 `--disable-autodetect`，按 LGPL-2.1-or-later 和相应第三方许可证发布；不包含 x264、x265 或 FDK-AAC。
 - 每个平台均需提供匹配架构的 FFmpeg 和 FFprobe。应用启动/首次任务时检查工具可用性与预期版本；不能执行时显示可操作错误。
 - 构建脚本必须在解压前校验固定归档 SHA-256，解压后为输入二进制生成并校验 `SHA256SUMS`；运行时不下载媒体工具，也不回退到 PATH。

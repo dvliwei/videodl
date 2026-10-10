@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -98,6 +99,25 @@ exit 2
 func stubFFmpegHangingScript() string {
 	return `#!/bin/sh
 sleep 30
+exit 0
+`
+}
+
+func stubFFmpegRejectPartScript() string {
+	return `#!/bin/sh
+out=""
+for arg in "$@"; do
+  out="$arg"
+done
+case "$out" in
+  *.part)
+    echo "output must have a container extension" >&2
+    exit 2
+    ;;
+esac
+echo "out_time_us=1000000"
+echo "progress=end"
+echo "stub output" > "$out"
 exit 0
 `
 }
@@ -404,6 +424,19 @@ func TestManager_RetryRepeat(t *testing.T) {
 	_, err = m.Retry(task.ID())
 	if !errors.Is(err, ErrTaskNotRetryable) {
 		t.Errorf("want ErrTaskNotRetryable when queued, got %v", err)
+	}
+}
+
+func TestManager_ClassifyFFmpegHTTPSCapabilityError(t *testing.T) {
+	manager := &Manager{}
+	err := manager.classifyFFmpegError(&ffmpeg.ProcessError{
+		Cmd:         "ffmpeg",
+		Args:        []string{"-i", "https://example.test/video"},
+		ExitCodeVal: 8,
+		StderrTail:  "[https] Protocol not found",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "HTTPS/TLS") {
+		t.Fatalf("error = %v, want HTTPS/TLS guidance", err)
 	}
 }
 
@@ -827,6 +860,55 @@ func TestManager_TranscodeProfile(t *testing.T) {
 
 	if !foundTranscoding {
 		t.Error("expected transcoding state for MP4 profile")
+	}
+}
+
+func TestManager_OriginalDownloadUsesContainerExtensionForStaging(t *testing.T) {
+	tmp := t.TempDir()
+	manager, _ := newTestManagerWithScripts(t, stubFFmpegRejectPartScript())
+	defer manager.Close()
+
+	request := newDownloadRequest("staging-extension")
+	request.OutputPath = filepath.Join(tmp, "video.mp4")
+	task, err := manager.Create(request, "Video")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for task.State() != media.TaskCompleted {
+		select {
+		case <-deadline:
+			t.Fatalf("timeout waiting for task completion; state = %s", task.State())
+		default:
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	if task.Snapshot().OutputPath == "" {
+		t.Fatal("completed task should have an output path")
+	}
+}
+
+func TestStagingSuffixForOutput(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		profile media.DownloadProfile
+		want    string
+	}{
+		{name: "target extension", target: "/tmp/video.webm", profile: media.ProfileOriginal, want: ".webm"},
+		{name: "default original", target: "", profile: media.ProfileOriginal, want: ".mp4"},
+		{name: "transcode preset", target: "/tmp/video.webm", profile: media.ProfileMP4, want: ".mp4"},
+		{name: "part target falls back", target: "/tmp/video.part", profile: media.ProfileOriginal, want: ".mp4"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stagingSuffixForOutput(tt.target, tt.profile); got != tt.want {
+				t.Fatalf("stagingSuffixForOutput(%q, %q) = %q, want %q", tt.target, tt.profile, got, tt.want)
+			}
+		})
 	}
 }
 

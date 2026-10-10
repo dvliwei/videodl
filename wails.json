@@ -9,5 +9,12 @@
   "author": {
     "name": "李伟",
     "email": "php.wei.li@gmail.com"
+  },
+  "info": {
+    "companyName": "李伟",
+    "productName": "捕影 VidGrab",
+    "productVersion": "1.0.0",
+    "copyright": "© 2026 李伟",
+    "comments": "捕影 VidGrab — 桌面视频下载器"
   }
 }

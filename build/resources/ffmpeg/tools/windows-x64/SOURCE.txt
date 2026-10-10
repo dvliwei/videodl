@@ -1,0 +1,42 @@
+FFmpeg 8.1.2
+Source tarball: https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+SHA256:         464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+Built on:       2026-07-14T03:38:18Z
+Built for:      x86_64-pc-windows-msvc
+Toolchain:      mingw-w64 gcc (via MSYS2)
+NVENC API:      nv-codec-headers n11.1.5.3 — minimum NVIDIA driver 471.41 (Windows) / 470.57.02 (Linux)
+Configuration:  --prefix=/c/actions-runner/ffmpeg-lgpl-builds/ffmpeg-lgpl-builds/build/x86_64-pc-windows-msvc/install --disable-gpl --disable-nonfree --disable-version3 --disable-autodetect --enable-static --disable-shared --disable-programs --enable-ffmpeg --enable-ffprobe --disable-doc --disable-htmlpages --disable-manpages --disable-podpages --disable-txtpages --disable-debug --enable-ffnvcodec --enable-nvenc --enable-amf --enable-libvpl --enable-libopenh264 --enable-schannel --enable-encoder='h264_nvenc,hevc_nvenc,h264_amf,hevc_amf,h264_qsv,hevc_qsv,libopenh264,aac' --enable-decoder='h264,hevc,aac,mp3,pcm_s16le,pcm_s24le,pcm_f32le' --enable-muxer='flv,mp4,mov' --enable-demuxer='flv,mpegts,mov,mp4' --enable-parser='h264,hevc,aac' --enable-protocol='rtmp,rtmps,tls,tcp,udp,file,pipe' --enable-bsf='aac_adtstoasc,h264_mp4toannexb,hevc_mp4toannexb' --enable-filter='scale,fps,format,aresample,asetnsamples,anull,null,copy' --arch=x86_64 --target-os=mingw32 --cc=gcc --pkg-config=/mingw64/bin/pkg-config --pkg-config-flags=--static --extra-cflags=-O3 --extra-ldflags=-static-libgcc
+
+This binary is LGPL-2.1-only. Per LGPL § 6, downstream end users are entitled
+to the complete corresponding source code for this FFmpeg build. The source
+is available verbatim at the URL above (matching the SHA256). The build
+scripts used to produce this binary are at:
+
+  https://github.com/serversideup/ffmpeg-lgpl-builds
+
+Check out the tag matching this binary's release to reproduce the build.
+
+This artifact also bundles the runtime DLLs that ffmpeg.exe imports, directly
+or transitively:
+
+  libvpl-2.dll        — Intel oneVPL dispatcher (MIT). Loaded at runtime when
+                        the Intel Quick Sync encoders (h264_qsv / hevc_qsv)
+                        are selected. See LIBVPL-LICENSE.txt.
+  libwinpthread-1.dll — mingw-w64 pthread runtime (BSD-style permissive).
+                        Imported unconditionally by FFmpeg's static libs.
+                        See LIBWINPTHREAD-LICENSE.txt.
+  libgcc_s_seh-1.dll  — GCC unwinder runtime, imported by libvpl-2.dll.
+  libstdc++-6.dll     — GCC C++ runtime, imported by libvpl-2.dll.
+                        Both are GPLv3 WITH the GCC Runtime Library Exception,
+                        which explicitly permits redistributing them alongside
+                        a GCC-compiled program without imposing copyleft on
+                        that program. See GCC-RUNTIME-LIBRARY-EXCEPTION.txt and
+                        GCC-LICENSE.txt.
+
+All bundled DLLs are LGPL-compatible; shipping them imposes no copyleft
+obligation on downstream consumers beyond what the FFmpeg LGPL already does.
+
+The "msvc" in the target triple is a consumer convention (Rust, vendor.toml)
+for "Windows x64." The actual build toolchain is mingw-w64 gcc; the resulting
+.exe is a standard Windows PE executable and behaves identically regardless
+of the consumer's chosen toolchain.

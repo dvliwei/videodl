@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { t } from '../../i18n/index.js'
 import { formatDuration, formatBytes, formatResolution, formatBandwidth } from '../../shared/format.js'
 
 const props = defineProps({
@@ -18,19 +19,19 @@ const sourceTypeLabel = computed(() => {
   switch (props.candidate.sourceType) {
     case 'hls': return 'HLS'
     case 'dash': return 'DASH'
-    case 'direct': return '直链'
+    case 'direct': return t('media.direct')
     default: return props.candidate.sourceType || ''
   }
 })
 
 const audioLabel = computed(() => {
   if (!props.candidate.hasAudio) return null
-  return '有音频'
+  return t('media.hasAudio')
 })
 
 const videoLabel = computed(() => {
   if (!props.candidate.hasVideo) return null
-  return '有视频'
+  return t('media.hasVideo')
 })
 
 const unsupportedReason = computed(() => props.candidate.unsupported || '')
@@ -50,7 +51,7 @@ function getVariantLabel(v) {
     parts.push(formatBandwidth(v.bandwidth))
   }
   if (parts.length === 0 && v.label) return v.label
-  return parts.join(' · ') || '默认'
+  return parts.join(' · ') || t('media.defaultVariant')
 }
 
 const effectiveVariantId = computed(() => {
@@ -80,7 +81,7 @@ function handleSelectVariant(variantId) {
   <article class="media-card" :class="{ 'is-unsupported': unsupportedReason }">
     <header class="card-header">
       <div class="title-wrap">
-        <h3 class="card-title" :title="candidate.title">{{ candidate.title || '未命名资源' }}</h3>
+        <h3 class="card-title" :title="candidate.title">{{ candidate.title || t('media.unnamed') }}</h3>
         <span class="source-badge">{{ sourceTypeLabel }}</span>
       </div>
       <div class="display-url" v-if="candidate.displayUrl" :title="candidate.displayUrl">
@@ -97,27 +98,27 @@ function handleSelectVariant(variantId) {
       <template v-else>
         <div class="meta-grid">
           <div class="meta-item">
-            <span class="meta-label">分辨率</span>
+            <span class="meta-label">{{ t('media.resolution') }}</span>
             <span class="meta-value" :class="{ 'is-unknown': !resolution }">
-              {{ resolution || '未知' }}
+              {{ resolution || t('common.unknown') }}
             </span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">格式</span>
+            <span class="meta-label">{{ t('media.format') }}</span>
             <span class="meta-value" :class="{ 'is-unknown': !candidate.format }">
-              {{ candidate.format || '未知' }}
+              {{ candidate.format || t('common.unknown') }}
             </span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">时长</span>
+            <span class="meta-label">{{ t('media.duration') }}</span>
             <span class="meta-value" :class="{ 'is-unknown': !duration }">
-              {{ duration || '未知' }}
+              {{ duration || t('common.unknown') }}
             </span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">大小</span>
+            <span class="meta-label">{{ t('media.size') }}</span>
             <span class="meta-value" :class="{ 'is-unknown': !size }">
-              {{ size || '未知' }}
+              {{ size || t('common.unknown') }}
             </span>
           </div>
         </div>
@@ -125,11 +126,11 @@ function handleSelectVariant(variantId) {
         <div class="stream-info">
           <span v-if="videoLabel" class="stream-tag is-video">{{ videoLabel }}</span>
           <span v-if="audioLabel" class="stream-tag is-audio">{{ audioLabel }}</span>
-          <span v-if="!videoLabel && !audioLabel" class="stream-tag is-unknown">流信息未知</span>
+          <span v-if="!videoLabel && !audioLabel" class="stream-tag is-unknown">{{ t('media.streamUnknown') }}</span>
         </div>
 
         <div v-if="hasVariants" class="variants-block">
-          <label class="variants-label">清晰度 / 变体</label>
+          <label class="variants-label">{{ t('media.variants') }}</label>
           <div class="variants-list">
             <button
               v-for="(v, i) in candidate.variants"
@@ -153,7 +154,7 @@ function handleSelectVariant(variantId) {
         :disabled="!!unsupportedReason"
         @click="handleDownload"
       >
-        下载
+        {{ t('common.download') }}
       </button>
     </footer>
   </article>

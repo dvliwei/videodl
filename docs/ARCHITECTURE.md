@@ -82,6 +82,7 @@ yt-dlp 资源固定放在 `resources/yt-dlp/tools/<platform>/`，用户更新副
 - **根包保留 Wails 接入。** Wails 绑定稳定地使用 `main.App`，Go 业务实现放在 `internal`，避免把 Wails runtime 扩散到各模块。
 - **分析会话持有真实源 URL。** 前端通过不透明 ID 指定候选/变体；后端从有限期分析会话解析源 URL，并在下载前再次校验目标地址。
 - **媒体工具由后端进程调用。** 参数数组启动，机器可读进度，固定配置式转码预设；不允许任意命令字符串。
+- **分析代理分两层。** `netguard` 先校验公网目标，再可通过环境中的 HTTP 上游代理转发；上游代理地址本身不改变目标校验边界。
 - **先做静态网页/公开清单。** MVP 不运行任意网页 JavaScript；动态页面作为明确“不支持”结果，后续根据实际需求再扩充。
 - **按任务创建目录。** 避免为尚未实现的功能创建空包和空抽象；每个计划任务在开始时新增最少文件。
 
@@ -97,7 +98,7 @@ yt-dlp 资源固定放在 `resources/yt-dlp/tools/<platform>/`，用户更新副
 
 以下事项在对应任务中以可复现的目标平台验证后再选定，不提前添加依赖或构建系统：
 
-- FFmpeg/FFprobe 已固定为 AtlasYang `ffmpeg-8.0.3-build4` 的 LGPL-2.1-or-later 静态 CLI 构建；构建选项、编码器集合、平台归档 SHA-256 和许可证材料见 `build/resources/ffmpeg/manifest.yaml` 与 `CREDITS.md`。任务 18 仍需将已校验资源接入 Wails 平台资源布局。
+- macOS/Windows 的 FFmpeg/FFprobe 发布资源切换为 serversideup `v8.1.2-27` LGPL-only 构建，并要求包含 `https` 与 `tls` 协议；Linux 仍保留旧资源，暂不在本次验证范围。构建选项、平台归档 SHA-256 和许可证材料见 `build/resources/ffmpeg/manifest.yaml` 与 `CREDITS.md`。
 - 媒体工具放入 Wails 资源的确切目录与平台打包注入方式（任务 18）。
 - 前端状态管理库、路由和组件库（只有原生 Vue 状态无法满足时再引入）。
 - Linux ARM64 是否进入首发矩阵（当前产品说明列为后续扩展）。

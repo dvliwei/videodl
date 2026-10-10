@@ -16,6 +16,7 @@ type ProcessConfig struct {
 	MaxStderrBytes int64
 	WorkDir        string
 	Env            []string
+	HTTPProxy      string
 }
 
 func (c ProcessConfig) withDefaults() ProcessConfig {
@@ -41,6 +42,26 @@ type RunResult struct {
 	ExitCode int
 }
 
+func (p *Process) buildCmdArgs() []string {
+	if p.cfg.HTTPProxy == "" {
+		return p.args
+	}
+	hasHTTPProxy := false
+	for i := 0; i < len(p.args)-1; i++ {
+		if p.args[i] == "-http_proxy" {
+			hasHTTPProxy = true
+			break
+		}
+	}
+	if hasHTTPProxy {
+		return p.args
+	}
+	out := make([]string, 0, len(p.args)+2)
+	out = append(out, "-http_proxy", p.cfg.HTTPProxy)
+	out = append(out, p.args...)
+	return out
+}
+
 func NewProcess(binPath string, args []string, cfg ProcessConfig) *Process {
 	return &Process{
 		binPath: binPath,
@@ -63,7 +84,7 @@ func (p *Process) Run(ctx context.Context) (*RunResult, error) {
 		ctx = context.Background()
 	}
 
-	cmd := exec.CommandContext(ctx, p.binPath, p.args...)
+	cmd := exec.CommandContext(ctx, p.binPath, p.buildCmdArgs()...)
 	if p.cfg.WorkDir != "" {
 		cmd.Dir = p.cfg.WorkDir
 	}

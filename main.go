@@ -15,7 +15,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  "VideoDL",
+		Title:  "捕影 VidGrab",
 		Width:  1024,
 		Height: 768,
 		AssetServer: &assetserver.Options{

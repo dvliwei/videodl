@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -710,6 +711,7 @@ func (m *Manager) runDownloadPhase(ctx context.Context, task *Task) error {
 
 	task.mu.RLock()
 	req := task.Request
+	profile := task.Profile
 	task.mu.RUnlock()
 
 	src, err := resolver.Resolve(ctx, req.AnalysisID, req.MediaID, req.VariantID)
@@ -728,7 +730,7 @@ func (m *Manager) runDownloadPhase(ctx context.Context, task *Task) error {
 		return newTaskError("download.resolve_empty", "resolver returned no input URLs", nil)
 	}
 
-	if err := m.ensureStagingFile(task, ".part"); err != nil {
+	if err := m.ensureStagingFile(task, stagingSuffixForOutput(req.OutputPath, profile)); err != nil {
 		return err
 	}
 
@@ -864,7 +866,10 @@ func (m *Manager) classifyFFmpegError(runErr error, result *ffmpeg.DownloadResul
 	pe, ok := runErr.(*ffmpeg.ProcessError)
 	if ok {
 		msg := pe.Error()
-		if pe.StderrTail != "" {
+		stderr := strings.ToLower(pe.StderrTail)
+		if strings.Contains(stderr, "protocol not found") && strings.Contains(stderr, "https") {
+			msg = "bundled FFmpeg lacks HTTPS/TLS protocol support; update the app's bundled FFmpeg resources"
+		} else if pe.StderrTail != "" {
 			msg = msg + " | " + pe.StderrTail
 		}
 		return newTaskError("download.ffmpeg_failed", msg, runErr)
@@ -950,6 +955,20 @@ func outputSuffixForProfile(profile media.DownloadProfile) string {
 		suffix = ".mp4"
 	}
 	return suffix
+}
+
+func stagingSuffixForOutput(targetPath string, profile media.DownloadProfile) string {
+	if profile != media.ProfileOriginal {
+		return outputSuffixForProfile(profile)
+	}
+
+	ext := strings.ToLower(filepath.Ext(targetPath))
+	switch ext {
+	case ".avi", ".flv", ".m2ts", ".m4a", ".m4v", ".mkv", ".mov", ".mp3", ".mp4", ".mpeg", ".mpg", ".ogg", ".ogv", ".ts", ".wav", ".webm":
+		return ext
+	default:
+		return outputSuffixForProfile(profile)
+	}
 }
 
 func (m *Manager) runFinishPhase(ctx context.Context, task *Task) error {

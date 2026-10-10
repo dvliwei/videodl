@@ -56,6 +56,37 @@ exit 0
 	}
 }
 
+func TestValidateNetworkProtocols(t *testing.T) {
+	output := `Supported file protocols:
+Input:
+  file
+  http
+  https
+  tls
+Output:
+  file
+`
+	if err := ValidateNetworkProtocols(output); err != nil {
+		t.Fatalf("supported protocols rejected: %v", err)
+	}
+
+	if err := ValidateNetworkProtocols("Input:\n  http\n"); err == nil {
+		t.Fatal("missing https/tls protocols should be rejected")
+	}
+}
+
+func TestInvoker_VerifyNetworkProtocols(t *testing.T) {
+	tmp := t.TempDir()
+	script := writeStubScript(t, tmp, "ffmpeg",
+		`#!/bin/sh
+printf '%s\n' 'Input:' '  https' '  tls'
+`)
+	inv := NewInvoker(ToolPaths{FFmpeg: script})
+	if err := inv.VerifyNetworkProtocols(context.Background()); err != nil {
+		t.Fatalf("VerifyNetworkProtocols: %v", err)
+	}
+}
+
 func TestProcess_NonZeroExit(t *testing.T) {
 	tmp := t.TempDir()
 	script := writeStubScript(t, tmp, "fail.sh",

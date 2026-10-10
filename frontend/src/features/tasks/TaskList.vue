@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { t } from '../../i18n/index.js'
 import TaskCard from './TaskCard.vue'
 import {
   listTasks,
@@ -100,15 +101,15 @@ defineEmits(['directory-needed'])
   <section class="panel tasks-panel" aria-labelledby="tasks-title">
     <div class="panel-heading">
       <div>
-        <h2 id="tasks-title">下载任务</h2>
+        <h2 id="tasks-title">{{ t('task.title') }}</h2>
         <template v-if="hasTasks">
           <p>
-            活跃 {{ activeCount }} · 完成 {{ completedCount }}
-            <template v-if="failedCount > 0"> · 失败 {{ failedCount }}</template>
+            {{ t('task.activeSummary', { active: activeCount, completed: completedCount }) }}
+            <template v-if="failedCount > 0"> {{ t('task.failedCount', { failed: failedCount }) }}</template>
           </p>
         </template>
         <template v-else-if="loaded">
-          <p>暂无下载任务</p>
+          <p>{{ t('task.none') }}</p>
         </template>
       </div>
       <span v-if="hasTasks" class="panel-count">{{ tasks.length }}</span>
@@ -118,15 +119,15 @@ defineEmits(['directory-needed'])
       <template v-if="!loaded && !hasTasks">
         <div class="empty-state">
           <span class="empty-icon" aria-hidden="true">⬇</span>
-          <strong>等待下载任务</strong>
-          <span>分析视频资源并点击下载按钮，任务将出现在这里。</span>
+          <strong>{{ t('task.waitTitle') }}</strong>
+          <span>{{ t('task.waitHint') }}</span>
         </div>
       </template>
 
       <template v-else-if="loadError">
         <div class="empty-state">
           <span class="empty-icon" aria-hidden="true">!</span>
-          <strong>无法加载任务</strong>
+          <strong>{{ t('task.loadFailed') }}</strong>
           <span>{{ loadError }}</span>
         </div>
       </template>

@@ -6,13 +6,20 @@ VideoDL 将 FFmpeg 和 FFprobe 作为独立子进程调用，不链接 FFmpeg �
 
 | 项目 | 值 |
 | --- | --- |
-| FFmpeg 版本 | **8.0.3** |
-| FFmpeg 上游标签 | `n8.0.3` |
-| 构建发行标签 | `ffmpeg-8.0.3-build4` |
-| 构建来源 | [AtlasYang/ffmpeg-static-builds](https://github.com/AtlasYang/ffmpeg-static-builds) |
-| 上游源码 | [FFmpeg 8.0.3 源码](https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz) |
-| 上游签名 | [ffmpeg-8.0.3.tar.xz.asc](https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz.asc) |
+| FFmpeg 版本 | **8.1.2（macOS/Windows）、8.0.3（Linux）** |
+| FFmpeg 上游标签 | `n8.1.2`（macOS/Windows）、`n8.0.3`（Linux） |
+| 构建发行标签 | `v8.1.2-27`（macOS/Windows）、`ffmpeg-8.0.3-build4`（Linux） |
+| 构建来源 | [serversideup/ffmpeg-lgpl-builds](https://github.com/serversideup/ffmpeg-lgpl-builds)（macOS/Windows）、[AtlasYang/ffmpeg-static-builds](https://github.com/AtlasYang/ffmpeg-static-builds)（Linux） |
+| 上游源码 | [FFmpeg 8.1.2 源码](https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz)、[FFmpeg 8.0.3 源码](https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz) |
+| 上游签名 | 对应版本的 `.tar.xz.asc` |
 | 配置审计 | 每个平台的 `*.configure.txt` 链接记录在 `manifest.yaml` |
+
+## 网络协议要求
+
+macOS/Windows 发布资产必须同时提供 `https` 和 `tls` 协议。当前这两个平台切换到
+serversideup 的 LGPL-only build v8.1.2-27；macOS 使用静态 OpenSSL 3，Windows 使用
+系统 Schannel。Windows 归档还包含运行所需的 MinGW/oneVPL/OpenH264 DLL；这些 DLL
+及对应许可证会随资源一并分发。Linux 仍保留原来源，暂不作为本次支持范围。
 
 ## 平台资产
 

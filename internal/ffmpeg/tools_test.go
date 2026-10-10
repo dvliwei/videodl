@@ -162,6 +162,11 @@ func TestValidateVersion(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "8.1 branch accepted",
+			output:  "ffmpeg version 8.1.2 Copyright",
+			wantErr: false,
+		},
+		{
 			name:    "wrong major version",
 			output:  "ffmpeg version 7.1.4 Copyright",
 			wantErr: true,

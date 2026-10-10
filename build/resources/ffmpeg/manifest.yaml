@@ -1,9 +1,9 @@
 schema_version: 2
 
 ffmpeg:
-  version: "8.0.3"
-  branch: "8.0"
-  release_date: "2026-06-18"
+  version: "8.1.2 (macOS/Windows); 8.0.3 (Linux)"
+  branch: "8.1 (macOS/Windows); 8.0 (Linux)"
+  release_date: "2026-07-14 (macOS/Windows); 2026-06-18 (Linux)"
   upstream_homepage: "https://ffmpeg.org"
   upstream_repository: "https://github.com/FFmpeg/FFmpeg"
 
@@ -14,14 +14,19 @@ license:
   license_files:
     - "licenses/FFmpeg-COPYING.LGPLv2.1"
     - "licenses/THIRD-PARTY-NOTICES.md"
+    - "licenses/OPENSSL-LICENSE.txt"
+    - "licenses/LIBVPL-LICENSE.txt"
+    - "licenses/LIBWINPTHREAD-LICENSE.txt"
+    - "licenses/LIBOPENH264-LICENSE.txt"
+    - "licenses/GCC-LICENSE.txt"
 
 source:
-  provider: "AtlasYang/ffmpeg-static-builds"
-  provider_url: "https://github.com/AtlasYang/ffmpeg-static-builds"
-  release_tag: "ffmpeg-8.0.3-build4"
-  release_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/tag/ffmpeg-8.0.3-build4"
-  source_archive_url: "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz"
-  source_signature_url: "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz.asc"
+  provider: "serversideup/ffmpeg-lgpl-builds (macOS/Windows); AtlasYang/ffmpeg-static-builds (Linux)"
+  provider_url: "https://github.com/serversideup/ffmpeg-lgpl-builds"
+  release_tag: "v8.1.2-27 (macOS/Windows); ffmpeg-8.0.3-build4 (Linux)"
+  release_url: "https://github.com/serversideup/ffmpeg-lgpl-builds/releases/tag/v8.1.2-27"
+  source_archive_url: "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz"
+  source_signature_url: "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz.asc"
   modified: false
 
 encoders:
@@ -69,14 +74,14 @@ platforms:
   windows-x64:
     goos: "windows"
     goarch: "amd64"
-    archive_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-win-x64.zip"
-    archive_format: "zip"
-    archive_sha256: "fd3473736674343cd1948eb45f28b46f377616432a5cc15eb896bdaabea506f2"
+    archive_url: "https://github.com/serversideup/ffmpeg-lgpl-builds/releases/download/v8.1.2-27/ffmpeg-8.1.2-x86_64-pc-windows-msvc.tar.gz"
+    archive_format: "tar.gz"
+    archive_sha256: "fb2de01912edb449a5eba1cc487696c7f71ebb7b325e5c5c69434642ec2ba6b0"
     tool_paths:
       ffmpeg: "ffmpeg.exe"
       ffprobe: "ffprobe.exe"
     extract_root: ""
-    configure_report_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-win-x64.configure.txt"
+    configure_report_url: "https://github.com/serversideup/ffmpeg-lgpl-builds/releases/tag/v8.1.2-27"
     minimum_os: "Windows 10"
   linux-x64:
     goos: "linux"
@@ -93,45 +98,48 @@ platforms:
   darwin-x64:
     goos: "darwin"
     goarch: "amd64"
-    archive_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-macos-x64.tar.gz"
+    archive_url: "https://github.com/serversideup/ffmpeg-lgpl-builds/releases/download/v8.1.2-27/ffmpeg-8.1.2-x86_64-apple-darwin.tar.gz"
     archive_format: "tar.gz"
-    archive_sha256: "b84b4515aaf2fe443a76445f02d05544a384dcd46cc6059fb8a1a4f9aaa3035d"
+    archive_sha256: "51ac761dde58a600bb685a5d2510ae38d6ade1f62ef2ef556263c67cb69f2b00"
     tool_paths:
       ffmpeg: "ffmpeg"
       ffprobe: "ffprobe"
     extract_root: ""
-    configure_report_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-macos-x64.configure.txt"
-    minimum_os: "macOS 10.15 Catalina"
+    configure_report_url: "https://github.com/serversideup/ffmpeg-lgpl-builds/releases/tag/v8.1.2-27"
+    minimum_os: "macOS 12 Monterey"
     codesign_required: true
   darwin-arm64:
     goos: "darwin"
     goarch: "arm64"
-    archive_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-macos-arm64.tar.gz"
+    archive_url: "https://github.com/serversideup/ffmpeg-lgpl-builds/releases/download/v8.1.2-27/ffmpeg-8.1.2-aarch64-apple-darwin.tar.gz"
     archive_format: "tar.gz"
-    archive_sha256: "26f6269b117a51c5fdfd3a870c4e0a62b99f0575740a3933fc3d852f0a3f80b1"
+    archive_sha256: "ac0babf65798bf681da1dc81c4fe4ae049d0d26e161410174b0e120e3e783332"
     tool_paths:
       ffmpeg: "ffmpeg"
       ffprobe: "ffprobe"
     extract_root: ""
-    configure_report_url: "https://github.com/AtlasYang/ffmpeg-static-builds/releases/download/ffmpeg-8.0.3-build4/ffmpeg-8.0.3-macos-arm64.configure.txt"
-    minimum_os: "macOS 11 Big Sur"
+    configure_report_url: "https://github.com/serversideup/ffmpeg-lgpl-builds/releases/tag/v8.1.2-27"
+    minimum_os: "macOS 12 Monterey"
     codesign_required: true
 
 build_options:
+  required_protocols:
+    - "https"
+    - "tls"
   required_policy_flags:
     - "--disable-gpl"
     - "--disable-nonfree"
     - "--disable-version3"
     - "--disable-autodetect"
-  packaging: "static ffmpeg and ffprobe executables; each archive contains only those two files"
-  configuration_source: "The complete per-target configure output is pinned by configure_report_url and must be reviewed with the release."
+  packaging: "macOS/Windows archives include ffmpeg, ffprobe, and required license/runtime files; Linux retains the previous two-tool archive"
+  configuration_source: "macOS/Windows configuration is recorded in the v8.1.2-27 release; Linux configuration remains pinned by its existing configure_report_url."
 
 source_distribution:
   obligation: "Ship the LGPL-2.1-or-later notice and applicable third-party notices with every release. Keep the exact upstream source URL, release signature and provider configure reports available beside the release."
-  source_archive_url: "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz"
-  source_signature_url: "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz.asc"
-  source_revision: "n8.0.3"
-  build_revision: "ffmpeg-8.0.3-build4"
+  source_archive_url: "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz"
+  source_signature_url: "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz.asc"
+  source_revision: "n8.1.2 (macOS/Windows); n8.0.3 (Linux)"
+  build_revision: "v8.1.2-27 (macOS/Windows); ffmpeg-8.0.3-build4 (Linux)"
   modified_source: false
   source_offer: "Release materials link to the exact unmodified upstream source and the provider's per-target configuration audit."
 

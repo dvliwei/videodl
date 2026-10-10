@@ -1,0 +1,20 @@
+FFmpeg 8.1.2
+Source tarball: https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+SHA256:         464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+Built on:       2026-07-14T03:33:40Z
+Built for:      aarch64-apple-darwin
+Configuration:  --prefix=/Users/runner/work/ffmpeg-lgpl-builds/ffmpeg-lgpl-builds/build/aarch64-apple-darwin/install --disable-gpl --disable-nonfree --disable-version3 --disable-autodetect --enable-static --disable-shared --disable-programs --enable-ffmpeg --enable-ffprobe --disable-doc --disable-htmlpages --disable-manpages --disable-podpages --disable-txtpages --disable-debug --enable-videotoolbox --enable-audiotoolbox --enable-openssl --pkg-config-flags=--static --enable-encoder='h264_videotoolbox,hevc_videotoolbox,aac' --enable-decoder='h264,hevc,aac,mp3,pcm_s16le,pcm_s24le,pcm_f32le' --enable-muxer='flv,mp4,mov' --enable-demuxer='flv,mpegts,mov,mp4' --enable-parser='h264,hevc,aac' --enable-protocol='rtmp,rtmps,tls,tcp,udp,file,pipe' --enable-bsf='aac_adtstoasc,h264_mp4toannexb,hevc_mp4toannexb' --enable-filter='scale,fps,format,aresample,asetnsamples,anull,null,copy' --arch=arm64 --target-os=darwin --cc='clang -arch arm64' --extra-cflags='-arch arm64 -mmacosx-version-min=12.0 -O3' --extra-ldflags='-arch arm64 -mmacosx-version-min=12.0'
+
+Statically linked third-party libraries:
+  OpenSSL 3.5.7 (Apache-2.0 license, see OPENSSL-LICENSE)
+  Source tarball: https://github.com/openssl/openssl/releases/download/openssl-3.5.7/openssl-3.5.7.tar.gz
+  SHA256:         a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8
+
+This binary is LGPL-2.1-only. Per LGPL § 6, downstream end users are entitled
+to the complete corresponding source code for this FFmpeg build. The source
+is available verbatim at the URL above (matching the SHA256). The build
+scripts used to produce this binary are at:
+
+  https://github.com/serversideup/ffmpeg-lgpl-builds
+
+Check out the tag matching this binary's release to reproduce the build.

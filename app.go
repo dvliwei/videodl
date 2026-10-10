@@ -17,6 +17,7 @@ import (
 	"videodl/internal/media"
 	"videodl/internal/netguard"
 	"videodl/internal/openpath"
+	"videodl/internal/proxy"
 	"videodl/internal/settings"
 	"videodl/internal/ytdlp"
 
@@ -117,7 +118,9 @@ func tryResolveYTDLPRunner(s *settings.Settings) *ytdlp.Runner {
 }
 
 func defaultYTDLPProxyFactory(ctx context.Context) (analyzer.YTDLPProxy, error) {
-	return netguard.NewProxy(ctx, netguard.NewResolver(nil), netguard.ProxyConfig{})
+	return netguard.NewProxy(ctx, netguard.NewResolver(nil), netguard.ProxyConfig{
+		UpstreamProxyURL: proxy.ResolveSystemProxyURL(),
+	})
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -133,6 +136,9 @@ func (a *App) startup(ctx context.Context) {
 	if a.invoker != nil {
 		if err := a.invoker.VerifyFFmpegVersion(ctx); err != nil {
 			println("startup: ffmpeg version check failed:", err.Error())
+		}
+		if err := a.invoker.VerifyNetworkProtocols(ctx); err != nil {
+			println("startup: bundled ffmpeg cannot download HTTPS media:", err.Error())
 		}
 		if err := a.invoker.VerifyFFprobeVersion(ctx); err != nil {
 			println("startup: ffprobe version check failed:", err.Error())

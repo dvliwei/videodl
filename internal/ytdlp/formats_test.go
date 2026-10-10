@@ -41,6 +41,28 @@ func TestMapInfoToCandidate_CombinedFormat(t *testing.T) {
 	}
 }
 
+func TestMapInfoToCandidate_ExcludesNonMediaFormats(t *testing.T) {
+	info := &Info{
+		ID:    "youtube-with-storyboard",
+		Title: "Video with storyboard",
+		Formats: []Format{
+			{FormatID: "sb3", URL: "https://i.ytimg.com/sb/id/storyboard3_L0/default.jpg", Ext: "jpg", Protocol: "mhtml"},
+			{FormatID: "18", URL: "https://cdn.example/video.mp4", Ext: "mp4", VCodec: "avc1", ACodec: "mp4a", Width: 1280, Height: 720},
+		},
+	}
+
+	candidate, err := MapInfoToCandidate(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidate.Variants) != 1 {
+		t.Fatalf("variants = %#v, want only playable media", candidate.Variants)
+	}
+	if got := candidate.Variants[0].InternalFormatSelector; got != "18" {
+		t.Fatalf("format selector = %q, want 18", got)
+	}
+}
+
 func TestMapInfoToCandidate_SeparateVideoAndAudio(t *testing.T) {
 	info := loadInfo(t, "separate-av.json")
 	first, err := MapInfoToCandidate(info)
@@ -76,15 +98,9 @@ func TestMapInfoToCandidate_MissingOptionalDataAndUnknownCodec(t *testing.T) {
 			ACodec:   "unknown",
 		}},
 	}
-	candidate, err := MapInfoToCandidate(info)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if candidate.DurationSeconds != nil || candidate.SizeBytes != nil {
-		t.Fatalf("optional values should be nil: %#v", candidate)
-	}
-	if candidate.HasVideo || candidate.HasAudio {
-		t.Fatalf("unknown codecs should not be claimed as playable: %#v", candidate)
+	_, err := MapInfoToCandidate(info)
+	if !errors.Is(err, ErrNoFormats) {
+		t.Fatalf("expected non-media format to be rejected, got %v", err)
 	}
 }
 

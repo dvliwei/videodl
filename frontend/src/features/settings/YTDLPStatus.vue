@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { t } from '../../i18n/index.js'
 import { formatYTDLPSource, isUpdateDisabled, YTDLP_PHASE } from './status.js'
 
 const props = defineProps({
@@ -9,14 +10,14 @@ const props = defineProps({
 const emit = defineEmits(['update'])
 
 const versionText = computed(() => {
-  if (!props.state.status?.currentVersion) return '未检测到内置解析器'
-  return `当前 ${props.state.status.currentVersion}`
+  if (!props.state.status?.currentVersion) return t('ytdlp.notDetected')
+  return t('ytdlp.current', { version: props.state.status.currentVersion })
 })
 
 const actionText = computed(() => {
-  if (props.state.phase === YTDLP_PHASE.CHECKING) return '检查中…'
-  if (props.state.phase === YTDLP_PHASE.UPDATING) return '更新中…'
-  return '检查并更新 yt-dlp'
+  if (props.state.phase === YTDLP_PHASE.CHECKING) return t('ytdlp.checking')
+  if (props.state.phase === YTDLP_PHASE.UPDATING) return t('ytdlp.updating')
+  return t('ytdlp.checkUpdate')
 })
 
 function handleUpdate() {
@@ -27,9 +28,9 @@ function handleUpdate() {
 <template>
   <div class="ytdlp-status" aria-live="polite">
     <div class="ytdlp-status-copy">
-      <strong>网站解析能力</strong>
+      <strong>{{ t('ytdlp.title') }}</strong>
       <span>{{ versionText }} · {{ formatYTDLPSource(state.status) }}</span>
-      <small>默认不读取浏览器 Cookie；需要时会单独征得授权。</small>
+      <small>{{ t('ytdlp.privacy') }}</small>
     </div>
     <button
       type="button"
@@ -39,6 +40,6 @@ function handleUpdate() {
     >
       {{ actionText }}
     </button>
-    <span v-if="state.error" class="ytdlp-error" role="alert">更新失败，请稍后重试。</span>
+    <span v-if="state.error" class="ytdlp-error" role="alert">{{ t('ytdlp.updateFailed') }}</span>
   </div>
 </template>

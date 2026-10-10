@@ -13,6 +13,11 @@ import {
   shouldUseBrowserSession
 } from './status.js'
 import { requestAnalysis } from '../analyze/request.js'
+import { setLocale } from '../../i18n/index.js'
+
+// 本地化文案按当前语言渲染；测试环境 navigator.language 可能非中文，
+// 故锁定简体中文以保证断言确定。
+setLocale('zh-CN')
 
 function test(name, fn) {
   try {
