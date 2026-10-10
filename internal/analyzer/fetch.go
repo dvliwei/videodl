@@ -7,8 +7,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"videodl/internal/proxy"
 )
 
 const (
@@ -28,8 +31,11 @@ type ClientConfig struct {
 	MaxRedirects   int
 	MaxBodyBytes   int64
 	UserAgent      string
-	Resolver       Resolver
-	TrustedHosts   map[string]bool
+	// ProxyURL overrides system proxy discovery for callers that need an
+	// explicit, validated HTTP proxy (for example, deterministic tests).
+	ProxyURL     string
+	Resolver     Resolver
+	TrustedHosts map[string]bool
 }
 
 func DefaultConfig() ClientConfig {
@@ -79,8 +85,18 @@ func NewSafeClient(cfg ClientConfig) *SafeClient {
 
 	safe := &SafeClient{config: cfg}
 
+	proxyFunc := proxy.ProxyForRequest
+	if rawProxy := proxy.ValidateHTTPProxyURL(cfg.ProxyURL); rawProxy != "" {
+		if proxyURL, err := url.Parse(rawProxy); err == nil {
+			proxyFunc = http.ProxyURL(proxyURL)
+		}
+	}
+
 	httpTransport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if proxy.IsConfiguredAddress(addr) || proxy.IsProxyAddress(cfg.ProxyURL, addr) {
+				return dialer.DialContext(ctx, network, addr)
+			}
 			host, _, err := net.SplitHostPort(addr)
 			if err != nil {
 				return nil, err
@@ -90,6 +106,7 @@ func NewSafeClient(cfg ClientConfig) *SafeClient {
 			}
 			return dialer.DialContext(ctx, network, addr)
 		},
+		Proxy:                 proxyFunc,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          10,
 		IdleConnTimeout:       90 * time.Second,

@@ -1,5 +1,5 @@
-.PHONY: ffmpeg-fetch ffmpeg-verify ffmpeg-clean ffmpeg-manifest-test test-ffmpeg
-.PHONY: yt-dlp-fetch yt-dlp-verify yt-dlp-clean yt-dlp-manifest-test
+.PHONY: ffmpeg-fetch ffmpeg-verify ffmpeg-check ffmpeg-clean ffmpeg-manifest-test test-ffmpeg
+.PHONY: yt-dlp-fetch yt-dlp-verify yt-dlp-check yt-dlp-clean yt-dlp-manifest-test
 .PHONY: wails-build package-bundle sign-bundle build-darwin build-windows build-linux quick-build
 .PHONY: host-platform
 
@@ -63,6 +63,14 @@ ffmpeg-clean:
 ffmpeg-manifest-test:
 	@bash scripts/test_ffmpeg_manifest.sh
 
+ffmpeg-check:
+	@if bash scripts/verify_ffmpeg.sh >/dev/null 2>&1; then \
+		echo "FFmpeg resources OK (verified)"; \
+	else \
+		echo "FFmpeg resources missing or invalid, fetching..."; \
+		$(MAKE) ffmpeg-fetch; \
+	fi
+
 test-ffmpeg:
 	go test ./internal/ffmpeg/ -v -count=1
 
@@ -81,6 +89,14 @@ yt-dlp-clean:
 
 yt-dlp-manifest-test:
 	@bash scripts/test_yt_dlp_manifest.sh
+
+yt-dlp-check:
+	@if bash scripts/verify_yt_dlp.sh >/dev/null 2>&1; then \
+		echo "yt-dlp resources OK (verified)"; \
+	else \
+		echo "yt-dlp resources missing or invalid, fetching..."; \
+		$(MAKE) yt-dlp-fetch; \
+	fi
 
 wails-build:
 	wails build -clean
@@ -112,7 +128,7 @@ else
 	@echo "sign-bundle: not macOS, skipping code signing"
 endif
 
-build-darwin: ffmpeg-fetch yt-dlp-fetch
+build-darwin: ffmpeg-check yt-dlp-check
 	@echo "Building macOS ($(HOST_ARCH)) app bundle..."
 	wails build -clean
 	@bash scripts/copy_ffmpeg_to_bundle.sh build/bin/videodl.app/Contents "$(HOST_PLATFORM)"
@@ -120,14 +136,14 @@ build-darwin: ffmpeg-fetch yt-dlp-fetch
 	@bash scripts/package_ffmpeg.sh build/bin/videodl.app/Contents/Resources/ffmpeg
 	@bash scripts/codesign_bundle.sh build/bin/videodl.app
 
-build-windows: ffmpeg-fetch yt-dlp-fetch
+build-windows: ffmpeg-check yt-dlp-check
 	@echo "Building Windows executable..."
 	wails build -clean
 	@bash scripts/copy_ffmpeg_to_bundle.sh build/bin windows-x64
 	@bash scripts/copy_yt_dlp_to_bundle.sh build/bin windows-x64
 	@bash scripts/package_ffmpeg.sh build/bin/resources/ffmpeg
 
-build-linux: ffmpeg-fetch yt-dlp-fetch
+build-linux: ffmpeg-check yt-dlp-check
 	@echo "Building Linux executable..."
 	wails build -clean
 	@bash scripts/copy_ffmpeg_to_bundle.sh build/bin linux-x64

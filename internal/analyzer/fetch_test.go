@@ -33,6 +33,18 @@ func testClientWithTrustedHosts(cfg ClientConfig) *SafeClient {
 	return NewSafeClient(cfg)
 }
 
+func newIPv4TestServer(t *testing.T, handler http.Handler) (*http.Server, string) {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: handler}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	return server, "http://" + listener.Addr().String()
+}
+
 func TestSafeClient_Get_BlacklistedIP(t *testing.T) {
 	client := NewSafeClient(DefaultConfig())
 
@@ -66,6 +78,29 @@ func TestSafeClient_FetchHTML_Success(t *testing.T) {
 	}
 	if !strings.Contains(body, "<html>") {
 		t.Errorf("body does not contain expected HTML: %s", body)
+	}
+}
+
+func TestSafeClient_UsesConfiguredProxy(t *testing.T) {
+	_, proxyURL := newIPv4TestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.String() != "http://public.example/video" {
+			t.Errorf("proxy request URL = %q", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<html>through-proxy</html>")
+	}))
+
+	cfg := DefaultConfig()
+	cfg.ProxyURL = proxyURL
+	cfg.TrustedHosts = map[string]bool{"public.example": true}
+	client := NewSafeClient(cfg)
+
+	body, err := client.FetchHTML(context.Background(), "http://public.example/video")
+	if err != nil {
+		t.Fatalf("FetchHTML() error = %v", err)
+	}
+	if body != "<html>through-proxy</html>" {
+		t.Fatalf("body = %q", body)
 	}
 }
 
