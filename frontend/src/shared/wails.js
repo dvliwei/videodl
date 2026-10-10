@@ -4,8 +4,10 @@ import * as App from '../../wailsjs/go/main/App.js'
 const EVENT_ANALYSIS_UPDATE = 'analysis:update'
 const EVENT_TASK_UPDATE = 'task:update'
 
-let analysisListener = null
-let taskListener = null
+let analysisListeners = []
+let taskListeners = []
+let analysisEmitterBound = false
+let taskEmitterBound = null
 
 export function analyze(url) {
   return App.Analyze({ url })
@@ -75,25 +77,37 @@ export function openContainingFolder(path) {
   return App.OpenContainingFolder(path)
 }
 
+function bindAnalysisEmitter() {
+  if (analysisEmitterBound) return
+  analysisEmitterBound = true
+  EventsOn(EVENT_ANALYSIS_UPDATE, (evt) => {
+    for (const cb of [...analysisListeners]) cb(evt)
+  })
+}
+
+function bindTaskEmitter() {
+  if (taskEmitterBound) return
+  taskEmitterBound = true
+  EventsOn(EVENT_TASK_UPDATE, (evt) => {
+    for (const cb of [...taskListeners]) cb(evt)
+  })
+}
+
 export function onAnalysisUpdate(callback) {
-  if (analysisListener) {
-    EventsOff(EVENT_ANALYSIS_UPDATE)
-  }
-  analysisListener = EventsOn(EVENT_ANALYSIS_UPDATE, callback)
+  analysisListeners.push(callback)
+  bindAnalysisEmitter()
   return () => {
-    EventsOff(EVENT_ANALYSIS_UPDATE)
-    analysisListener = null
+    const i = analysisListeners.indexOf(callback)
+    if (i >= 0) analysisListeners.splice(i, 1)
   }
 }
 
 export function onTaskUpdate(callback) {
-  if (taskListener) {
-    EventsOff(EVENT_TASK_UPDATE)
-  }
-  taskListener = EventsOn(EVENT_TASK_UPDATE, callback)
+  taskListeners.push(callback)
+  bindTaskEmitter()
   return () => {
-    EventsOff(EVENT_TASK_UPDATE)
-    taskListener = null
+    const i = taskListeners.indexOf(callback)
+    if (i >= 0) taskListeners.splice(i, 1)
   }
 }
 

@@ -5,6 +5,7 @@ import {
   formatBytes,
   formatSpeed,
   formatETA,
+  isIndeterminateProgress as isIndeterminateProgressValue,
   taskStateLabel,
   ACTIVE_STATES,
   TERMINAL_STATES
@@ -54,6 +55,10 @@ const etaDisplay = computed(() => {
 const progressBarWidth = computed(() => {
   if (progressPercent.value == null) return '0%'
   return `${progressPercent.value}%`
+})
+
+const isIndeterminateProgress = computed(() => {
+  return isIndeterminateProgressValue(props.task.progress)
 })
 
 function handleCancel() {
@@ -113,7 +118,11 @@ function pathDir(path) {
     <div class="task-body">
       <template v-if="isActive">
         <div class="progress-track">
-          <div class="progress-fill" :style="{ width: progressBarWidth }"></div>
+          <div
+            class="progress-fill"
+            :class="{ 'progress-fill--indeterminate': isIndeterminateProgress }"
+            :style="isIndeterminateProgress ? {} : { width: progressBarWidth }"
+          ></div>
           <div
             v-if="task.progress != null && progressPercent != null"
             class="progress-label"

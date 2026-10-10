@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:unit": "node src/features/settings/status.test.js"
+    "test:unit": "node src/features/settings/status.test.js && node src/shared/format.test.js"
   },
   "dependencies": {
     "vue": "^3.5.0"

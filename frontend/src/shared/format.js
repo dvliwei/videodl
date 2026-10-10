@@ -58,6 +58,10 @@ export function formatETA(remainingBytes, bytesPerSecond) {
   return `${h}h ${rem}m`
 }
 
+export function isIndeterminateProgress(progress) {
+  return progress == null || isNaN(progress) || !isFinite(progress)
+}
+
 // 任务状态到本地化标签。旧的对象常量改为函数，随当前语言实时更新。
 const STATE_KEYS = {
   queued: 'task.state.queued',

@@ -7,6 +7,7 @@ import {
   analyzeWithBrowserSession,
   cancelAnalysis,
   onAnalysisUpdate,
+  onTaskUpdate,
   isWailsAvailable
 } from '../../shared/wails.js'
 import {
@@ -41,7 +42,10 @@ const browserProfile = ref('')
 const authState = ref(createYTDLPState())
 
 let unwatchAnalysis = null
+let unwatchTask = null
 let analyzing = false
+
+const startingDownloads = ref({})
 
 const STATE = {
   IDLE: 'idle',
@@ -122,10 +126,14 @@ async function handleCancel() {
 }
 
 function handleDownload(payload) {
+  if (payload.mediaId) {
+    startingDownloads.value[payload.mediaId] = true
+  }
   emit('download', {
     analysisId: payload.analysisId,
     mediaId: payload.mediaId,
-    variantId: payload.variantId
+    variantId: payload.variantId,
+    title: payload.title || ''
   })
 }
 
@@ -169,10 +177,20 @@ onMounted(() => {
         break
     }
   })
+
+  unwatchTask = onTaskUpdate((evt) => {
+    if (!evt || !evt.task) return
+    const mediaId = evt.task.mediaId
+    if (mediaId && startingDownloads.value[mediaId]) {
+      delete startingDownloads.value[mediaId]
+      startingDownloads.value = { ...startingDownloads.value }
+    }
+  })
 })
 
 onUnmounted(() => {
   if (unwatchAnalysis) unwatchAnalysis()
+  if (unwatchTask) unwatchTask()
   if (analyzing && currentAnalysisId.value) {
     cancelAnalysis(currentAnalysisId.value).catch(() => {})
   }
@@ -292,6 +310,7 @@ onUnmounted(() => {
           :candidate="candidate"
           :analysis-id="currentAnalysisId"
           :selected-variant-id="selectedVariants[candidate.id] || ''"
+          :is-starting="!!startingDownloads[candidate.id]"
           @download="handleDownload"
           @select-variant="(vid) => handleSelectVariant(candidate.id, vid)"
         />

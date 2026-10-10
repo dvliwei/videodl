@@ -92,9 +92,10 @@ type Task struct {
 	errorCode    string
 	errorMessage string
 
-	progress *float64
-	speed    int64
-	size     *int64
+	progress        *float64
+	speed           int64
+	size            *int64
+	durationSeconds *float64
 
 	completedAt *time.Time
 
@@ -183,6 +184,7 @@ func (t *Task) setError(code media.ErrorCode, msg string) {
 
 func (t *Task) updateProgress(progress *float64, speed int64, size *int64) {
 	t.mu.Lock()
+	changed := false
 	if progress != nil {
 		p := *progress
 		if p > 100 {
@@ -191,13 +193,32 @@ func (t *Task) updateProgress(progress *float64, speed int64, size *int64) {
 		if p < 0 {
 			p = 0
 		}
+		if t.progress == nil || *t.progress != p {
+			changed = true
+		}
 		t.progress = &p
 	}
-	t.speed = speed
+	if t.speed != speed {
+		t.speed = speed
+		changed = true
+	}
 	if size != nil {
+		if t.size == nil || *t.size != *size {
+			changed = true
+		}
 		t.size = size
 	}
+	manager := t.manager
+	onEvent := manager.onEvent
+	emit := changed
 	t.mu.Unlock()
+
+	if emit && manager != nil && onEvent != nil {
+		onEvent(media.TaskEvent{
+			Version: media.EventVersion,
+			Task:    t.Snapshot(),
+		})
+	}
 }
 
 func (t *Task) tempDirectory() string {
@@ -627,6 +648,8 @@ func (m *Manager) runPipeline(ctx context.Context, task *Task) error {
 	task.mu.RUnlock()
 
 	if profile != media.ProfileOriginal {
+		zero := 0.0
+		task.updateProgress(&zero, 0, nil)
 		m.setState(task, media.TaskTranscoding, "transcoding")
 		if err := ctx.Err(); err != nil {
 			return err
@@ -730,6 +753,12 @@ func (m *Manager) runDownloadPhase(ctx context.Context, task *Task) error {
 		return newTaskError("download.resolve_empty", "resolver returned no input URLs", nil)
 	}
 
+	if src.DurationSeconds != nil && *src.DurationSeconds > 0 {
+		task.mu.Lock()
+		task.durationSeconds = src.DurationSeconds
+		task.mu.Unlock()
+	}
+
 	if err := m.ensureStagingFile(task, stagingSuffixForOutput(req.OutputPath, profile)); err != nil {
 		return err
 	}
@@ -768,10 +797,6 @@ func (m *Manager) runDownloadPhase(ctx context.Context, task *Task) error {
 			fmt.Sprintf("ffmpeg finished but output file missing: %v", statErr), statErr)
 	}
 
-	zeroProgress := 0.0
-	speedZero := int64(0)
-	task.updateProgress(&zeroProgress, speedZero, nil)
-
 	return nil
 }
 
@@ -806,6 +831,7 @@ func (m *Manager) runTranscodePhase(ctx context.Context, task *Task) error {
 	task.mu.RLock()
 	profile := task.Profile
 	srcStaging := task.stagingFile
+	durationSeconds := task.durationSeconds
 	task.mu.RUnlock()
 
 	if srcStaging == "" {
@@ -823,9 +849,10 @@ func (m *Manager) runTranscodePhase(ctx context.Context, task *Task) error {
 	}
 
 	tcOpts := ffmpeg.TranscodeOptions{
-		InputPath:  srcStaging,
-		OutputPath: transcodePath,
-		Profile:    profile,
+		InputPath:       srcStaging,
+		OutputPath:      transcodePath,
+		Profile:         profile,
+		DurationSeconds: durationSeconds,
 	}
 
 	sink := &taskProgressSink{task: task}
@@ -848,10 +875,6 @@ func (m *Manager) runTranscodePhase(ctx context.Context, task *Task) error {
 	task.mu.Lock()
 	task.stagingFile = transcodePath
 	task.mu.Unlock()
-
-	zeroProgress := 0.0
-	speedZero := int64(0)
-	task.updateProgress(&zeroProgress, speedZero, nil)
 
 	return nil
 }

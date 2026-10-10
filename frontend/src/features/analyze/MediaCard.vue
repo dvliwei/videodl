@@ -6,7 +6,8 @@ import { formatDuration, formatBytes, formatResolution, formatBandwidth } from '
 const props = defineProps({
   candidate: { type: Object, required: true },
   analysisId: { type: String, required: true },
-  selectedVariantId: { type: String, default: '' }
+  selectedVariantId: { type: String, default: '' },
+  isStarting: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['download', 'select-variant'])
@@ -148,7 +149,13 @@ function handleSelectVariant(variantId) {
     </div>
 
     <footer class="card-footer">
+      <div v-if="isStarting" class="btn-download-loading">
+        <div class="progress-track progress-track--btn">
+          <div class="progress-fill progress-fill--indeterminate"></div>
+        </div>
+      </div>
       <button
+        v-else
         class="btn-download"
         type="button"
         :disabled="!!unsupportedReason"
