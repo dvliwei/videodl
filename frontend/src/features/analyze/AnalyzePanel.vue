@@ -15,6 +15,7 @@ import {
   cancelBrowserAuthorization
 } from '../settings/status.js'
 import MediaCard from './MediaCard.vue'
+import { requestAnalysis } from './request.js'
 
 const urlInput = ref('')
 const inputError = ref('')
@@ -85,9 +86,10 @@ async function startAnalysis(browserSession = null) {
   inputError.value = ''
 
   try {
-    const resp = browserSession
-      ? await analyzeWithBrowserSession(url, browserSession.browser, browserSession.profile)
-      : await analyze(url)
+    const resp = await requestAnalysis(url, browserSession, {
+      analyze,
+      analyzeWithBrowserSession
+    })
     currentAnalysisId.value = resp.analysisId
   } catch (err) {
     analysisState.value = STATE.FAILED

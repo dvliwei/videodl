@@ -81,7 +81,12 @@ for platform in $PLATFORMS; do
         log "reusing cached $archive_name"
     else
         log "downloading $archive_url"
-        curl -fL --retry 3 --retry-delay 2 -o "$archive_path" "$archive_url"
+        # GitHub's release asset CDN can intermittently fail during HTTP/2 framing
+        # or stall on macOS/proxy combinations. Use HTTP/1.1, resume partial files,
+        # and retry transport failures, including curl error 16.
+        curl --http1.1 -fL --retry 5 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 30 --speed-limit 1024 --speed-time 30 \
+            --continue-at - -o "$archive_path" "$archive_url"
     fi
 
     log "verifying sha256"

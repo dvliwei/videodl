@@ -12,6 +12,7 @@ import {
   cancelBrowserAuthorization,
   shouldUseBrowserSession
 } from './status.js'
+import { requestAnalysis } from '../analyze/request.js'
 
 function test(name, fn) {
   try {
@@ -72,4 +73,28 @@ test('browser authorization is opt-in and cancel does not start it', () => {
 
 test('default analysis never opts into a browser session', () => {
   assert.equal(shouldUseBrowserSession(createYTDLPState()), false)
+})
+
+test('form submission event does not opt into a browser session', () => {
+  const calls = []
+  const api = {
+    analyze: (url) => calls.push(['default', url]),
+    analyzeWithBrowserSession: (...args) => calls.push(['browser', ...args])
+  }
+
+  requestAnalysis('https://www.youtube.com/watch?v=example', { type: 'submit' }, api)
+
+  assert.deepEqual(calls, [['default', 'https://www.youtube.com/watch?v=example']])
+})
+
+test('explicit browser session uses the authorized analysis path', () => {
+  const calls = []
+  const api = {
+    analyze: (url) => calls.push(['default', url]),
+    analyzeWithBrowserSession: (...args) => calls.push(['browser', ...args])
+  }
+
+  requestAnalysis('https://www.youtube.com/watch?v=example', { browser: 'chrome', profile: 'Default' }, api)
+
+  assert.deepEqual(calls, [['browser', 'https://www.youtube.com/watch?v=example', 'chrome', 'Default']])
 })
