@@ -1,0 +1,39 @@
+schema_version: 1
+yt_dlp:
+  version: "2026.08.19"
+  release_tag: "2026.08.19"
+  release_url: "https://github.com/yt-dlp/yt-dlp/releases/tag/2026.08.19"
+  repository: "https://github.com/yt-dlp/yt-dlp"
+  checksum_url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/SHA2-256SUMS"
+  checksum_algorithm: "sha256"
+  channel: "stable"
+  packaging: "official standalone PyInstaller executable; Python is not required at runtime"
+license:
+  source_license: "Unlicense"
+  bundled_executable_notice: "The official PyInstaller executable includes GPLv3+ and other third-party components. See licenses/THIRD_PARTY_LICENSES.txt."
+  license_files:
+    - "licenses/yt-dlp-UNLICENSE.txt"
+    - "licenses/THIRD_PARTY_LICENSES.txt"
+    - "licenses/GPL-3.0-or-later.txt"
+platforms:
+  windows-x64:
+    goos: "windows"
+    goarch: "amd64"
+    asset: "yt-dlp.exe"
+    resource_dir: "windows-x64"
+    url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe"
+    sha256: "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a"
+  linux-x64:
+    goos: "linux"
+    goarch: "amd64"
+    asset: "yt-dlp_linux"
+    resource_dir: "linux-x64"
+    url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux"
+    sha256: "58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a"
+  darwin-universal:
+    goos: "darwin"
+    goarch: "amd64+arm64"
+    asset: "yt-dlp_macos"
+    resource_dir: "darwin-universal"
+    url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos"
+    sha256: "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202"

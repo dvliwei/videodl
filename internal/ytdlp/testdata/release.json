@@ -1,0 +1,9 @@
+{
+  "repository": "yt-dlp/yt-dlp",
+  "tag_name": "2026.09.01",
+  "prerelease": false,
+  "draft": false,
+  "assets": [
+    {"name": "yt-dlp_macos", "browser_download_url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.09.01/yt-dlp_macos"}
+  ]
+}

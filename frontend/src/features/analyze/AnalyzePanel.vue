@@ -1,7 +1,19 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { validateUrl } from '../../shared/validate.js'
-import { analyze, cancelAnalysis, onAnalysisUpdate, isWailsAvailable } from '../../shared/wails.js'
+import {
+  analyze,
+  analyzeWithBrowserSession,
+  cancelAnalysis,
+  onAnalysisUpdate,
+  isWailsAvailable
+} from '../../shared/wails.js'
+import {
+  YTDLP_PHASE,
+  createYTDLPState,
+  createBrowserAuthorization,
+  cancelBrowserAuthorization
+} from '../settings/status.js'
 import MediaCard from './MediaCard.vue'
 
 const urlInput = ref('')
@@ -11,6 +23,20 @@ const currentAnalysisId = ref('')
 const analysisResult = ref(null)
 const analysisError = ref(null)
 const selectedVariants = ref({})
+const browserOptions = [
+  { value: 'chrome', label: 'Chrome' },
+  { value: 'chromium', label: 'Chromium' },
+  { value: 'edge', label: 'Edge' },
+  { value: 'firefox', label: 'Firefox' },
+  { value: 'brave', label: 'Brave' },
+  { value: 'opera', label: 'Opera' },
+  { value: 'safari', label: 'Safari' },
+  { value: 'vivaldi', label: 'Vivaldi' },
+  { value: 'whale', label: 'Whale' }
+]
+const selectedBrowser = ref('chrome')
+const browserProfile = ref('')
+const authState = ref(createYTDLPState())
 
 let unwatchAnalysis = null
 let analyzing = false
@@ -45,7 +71,7 @@ function validateBeforeSubmit() {
   return result.url
 }
 
-async function startAnalysis() {
+async function startAnalysis(browserSession = null) {
   if (analyzing) return
   const url = validateBeforeSubmit()
   if (!url) return
@@ -59,13 +85,27 @@ async function startAnalysis() {
   inputError.value = ''
 
   try {
-    const resp = await analyze(url)
+    const resp = browserSession
+      ? await analyzeWithBrowserSession(url, browserSession.browser, browserSession.profile)
+      : await analyze(url)
     currentAnalysisId.value = resp.analysisId
   } catch (err) {
     analysisState.value = STATE.FAILED
     analysisError.value = { message: err.message || String(err) }
     analyzing = false
   }
+}
+
+async function confirmBrowserAuthorization() {
+  authState.value = { ...authState.value, browserAuthorized: true }
+  await startAnalysis({ browser: selectedBrowser.value, profile: browserProfile.value.trim() })
+  authState.value = createYTDLPState()
+}
+
+function cancelBrowserAuthorizationPrompt() {
+  authState.value = cancelBrowserAuthorization(authState.value)
+  analysisState.value = STATE.CANCELED
+  analysisError.value = null
 }
 
 async function handleCancel() {
@@ -113,6 +153,9 @@ onMounted(() => {
         analysisError.value = {
           code: evt.errorCode,
           message: evt.errorMessage || '分析失败'
+        }
+        if (evt.errorCode === 'ytdlp.auth_required') {
+          authState.value = createBrowserAuthorization(authState.value)
         }
         analysisState.value = STATE.FAILED
         break
@@ -191,6 +234,29 @@ onUnmounted(() => {
         <span>重新输入地址即可再次尝试。</span>
       </div>
 
+      <div v-else-if="authState.phase === YTDLP_PHASE.AUTH_REQUIRED" class="auth-state">
+        <strong>此网站可能需要登录会话</strong>
+        <p>只有在你明确授权后，VideoDL 才会从所选浏览器读取当前会话。Cookie 不会展示、上传或写入分析结果。</p>
+        <div class="auth-controls">
+          <label>
+            浏览器
+            <select v-model="selectedBrowser">
+              <option v-for="browser in browserOptions" :key="browser.value" :value="browser.value">
+                {{ browser.label }}
+              </option>
+            </select>
+          </label>
+          <label>
+            配置名称（可选）
+            <input v-model="browserProfile" type="text" maxlength="128" placeholder="例如 Default" />
+          </label>
+        </div>
+        <div class="auth-actions">
+          <button type="button" class="btn-primary" @click="confirmBrowserAuthorization">授权并重试</button>
+          <button type="button" class="btn-secondary" @click="cancelBrowserAuthorizationPrompt">取消</button>
+        </div>
+      </div>
+
       <div v-else-if="analysisState === STATE.FAILED" class="error-state">
         <span class="error-icon" aria-hidden="true">!</span>
         <strong>分析失败</strong>
@@ -229,4 +295,3 @@ onUnmounted(() => {
     </div>
   </section>
 </template>
-ENDOFFILE 

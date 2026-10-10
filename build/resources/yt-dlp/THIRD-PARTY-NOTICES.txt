@@ -1,0 +1,9 @@
+VideoDL distributes the official yt-dlp standalone executable as an external
+process. The executable is produced by the yt-dlp project and includes
+third-party components. The authoritative notices for the pinned release are
+available in the upstream release asset named THIRD_PARTY_LICENSES.txt:
+
+https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/THIRD_PARTY_LICENSES.txt
+
+The release checksum is recorded in ../manifest.yaml. This file is a release
+record and does not replace the upstream notice text.

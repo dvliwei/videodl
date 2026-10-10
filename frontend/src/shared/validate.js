@@ -25,4 +25,3 @@ export function validateUrl(input) {
 
   return { ok: true, url: trimmed }
 }
-ENDOFFILE 

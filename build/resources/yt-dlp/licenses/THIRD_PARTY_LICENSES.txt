@@ -1,0 +1,9 @@
+yt-dlp official release 2026.08.19
+
+The official standalone release includes the upstream third-party license
+notice. The release copy is available at:
+https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/THIRD_PARTY_LICENSES.txt
+
+This repository records the canonical source URL and pinned release in the
+adjacent manifest. Before shipping a release, the packaging job must copy the
+unmodified upstream notice into this file or fail the license-material check.

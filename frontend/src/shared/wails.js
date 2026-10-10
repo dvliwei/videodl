@@ -11,6 +11,18 @@ export function analyze(url) {
   return App.Analyze({ url })
 }
 
+export function analyzeWithBrowserSession(url, browser, profile = '') {
+  return App.AnalyzeWithBrowserSession({ url, browser, profile })
+}
+
+export function getYTDLPStatus() {
+  return App.GetYTDLPStatus()
+}
+
+export function updateYTDLP() {
+  return App.UpdateYTDLP()
+}
+
 export function cancelAnalysis(id) {
   return App.CancelAnalysis(id)
 }

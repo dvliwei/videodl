@@ -1,0 +1,20 @@
+{
+  "id": "video-1",
+  "title": "Example video",
+  "extractor": "example",
+  "webpage_url": "https://video.example/watch?id=1",
+  "duration": 12.5,
+  "formats": [
+    {
+      "format_id": "18",
+      "url": "https://cdn.example/video.mp4?token=secret",
+      "ext": "mp4",
+      "width": 1280,
+      "height": 720,
+      "vcodec": "avc1.64001f",
+      "acodec": "mp4a.40.2",
+      "filesize": 123456,
+      "http_headers": {"Referer": "https://video.example/"}
+    }
+  ]
+}

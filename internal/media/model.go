@@ -12,6 +12,7 @@ const (
 	SourceDirect SourceType = "direct"
 	SourceHLS    SourceType = "hls"
 	SourceDASH   SourceType = "dash"
+	SourceYTDLP  SourceType = "yt-dlp"
 )
 
 // DownloadProfile selects stream-copy output or an MVP compatibility transcode.
@@ -62,6 +63,21 @@ type MediaCandidate struct {
 	// URL (HLS) or base MPD + Representation selector (DASH). nil entries
 	// mean the master manifest / MPD should be used directly.
 	InternalVariantManifests map[string]string `json:"-"`
+
+	// InternalYTDLPSource contains only backend re-resolution context. It is
+	// never serialized to the frontend because yt-dlp selectors and browser
+	// authority are not user-controlled download parameters.
+	InternalYTDLPSource *YTDLPSource `json:"-"`
+}
+
+// YTDLPSource is backend-only context used to resolve short-lived media URLs
+// again when a download task starts. The JSON tags make accidental Wails
+// serialization fail closed even if this struct is embedded in a response.
+type YTDLPSource struct {
+	PageURL        string `json:"-"`
+	FormatSelector string `json:"-"`
+	Browser        string `json:"-"`
+	Profile        string `json:"-"`
 }
 
 // MediaVariant describes a selectable rendition in an HLS or DASH manifest.
@@ -74,6 +90,10 @@ type MediaVariant struct {
 	HasVideo         bool   `json:"hasVideo"`
 	HasAudio         bool   `json:"hasAudio"`
 	AudioDescription string `json:"audioDescription"`
+
+	// InternalFormatSelector is the yt-dlp format ID/selector used by the
+	// backend when it re-resolves this variant. It is not a frontend contract.
+	InternalFormatSelector string `json:"-"`
 }
 
 // ManifestVariant is the analyzer-internal intermediate representation of a

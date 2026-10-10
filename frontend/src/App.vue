@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import AnalyzePanel from './features/analyze/AnalyzePanel.vue'
 import TaskList from './features/tasks/TaskList.vue'
 import {
@@ -8,8 +8,18 @@ import {
   setDefaultDirectory,
   chooseDirectory,
   saveAs,
+  getYTDLPStatus,
+  updateYTDLP,
   isWailsAvailable
 } from './shared/wails.js'
+import {
+  createYTDLPState,
+  startChecking,
+  startUpdating,
+  receiveStatus,
+  receiveUpdateFailure
+} from './features/settings/status.js'
+import YTDLPStatus from './features/settings/YTDLPStatus.vue'
 
 const PROFILE_OPTIONS = [
   { value: 'original', label: '原始质量（无损封装）' },
@@ -25,6 +35,7 @@ const selectedProfile = ref('original')
 const saveAsMode = ref(false)
 
 const downloadError = ref(null)
+const ytdlpState = ref(createYTDLPState())
 
 const showFirstTimePrompt = computed(() =>
   isWailsAvailable() && isDefaultDir.value && defaultDir.value
@@ -32,6 +43,12 @@ const showFirstTimePrompt = computed(() =>
 
 onMounted(async () => {
   if (!isWailsAvailable()) return
+  ytdlpState.value = startChecking(ytdlpState.value)
+  try {
+    ytdlpState.value = receiveStatus(ytdlpState.value, await getYTDLPStatus())
+  } catch (err) {
+    ytdlpState.value = receiveUpdateFailure(ytdlpState.value, err)
+  }
   dirHintLoading.value = true
   try {
     const resp = await getDefaultDirectory()
@@ -43,6 +60,15 @@ onMounted(async () => {
     dirHintLoading.value = false
   }
 })
+
+async function handleYTDLPUpdate() {
+  ytdlpState.value = startUpdating(ytdlpState.value)
+  try {
+    ytdlpState.value = receiveStatus(ytdlpState.value, await updateYTDLP())
+  } catch (err) {
+    ytdlpState.value = receiveUpdateFailure(ytdlpState.value, err)
+  }
+}
 
 async function openDirectoryDialog() {
   try {
@@ -153,6 +179,12 @@ function clearDownloadError() {
         <span>下载失败：{{ downloadError }}</span>
         <button type="button" class="banner-close" @click="clearDownloadError">×</button>
       </div>
+
+      <YTDLPStatus
+        v-if="isWailsAvailable()"
+        :state="ytdlpState"
+        @update="handleYTDLPUpdate"
+      />
 
       <AnalyzePanel @download="handleDownload" />
 

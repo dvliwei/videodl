@@ -93,6 +93,56 @@ func TestBuildDownloadArgs_DASHMapStreams(t *testing.T) {
 	assertContainsAll(t, args, "-map", "0:v?", "-map", "0:a?")
 }
 
+func TestBuildDownloadArgs_MultipleInputs(t *testing.T) {
+	args, err := BuildDownloadArgs(DownloadOptions{
+		Inputs: []Input{
+			{URL: "https://cdn.example/video", Headers: map[string]string{"X-Video": "1"}},
+			{URL: "https://cdn.example/audio", Headers: map[string]string{"X-Audio": "2"}},
+		},
+		SourceType: media.SourceYTDLP,
+		OutputPath: "/tmp/out.mp4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countOf(args, "-i") != 2 {
+		t.Fatalf("input args = %#v", args)
+	}
+	assertContainsAll(t, args, "https://cdn.example/video", "https://cdn.example/audio", "-map", "0:v?", "-map", "1:a?")
+	firstInput := indexOf(args, "https://cdn.example/video")
+	secondInput := indexOf(args, "https://cdn.example/audio")
+	if indexOf(args, "X-Video: 1") > firstInput || indexOf(args, "X-Audio: 2") > secondInput || firstInput > secondInput {
+		t.Fatalf("per-input headers are not emitted before inputs: %#v", args)
+	}
+}
+
+func TestBuildDownloadArgs_MultipleInputsDeterministic(t *testing.T) {
+	opts := DownloadOptions{Inputs: []Input{{URL: "https://cdn.example/v", Headers: map[string]string{"Z": "z", "A": "a"}}, {URL: "https://cdn.example/a"}}, OutputPath: "/tmp/out.mkv"}
+	first, err := BuildDownloadArgs(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := BuildDownloadArgs(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(first, "\x00") != strings.Join(second, "\x00") {
+		t.Fatalf("args are not deterministic:\n%#v\n%#v", first, second)
+	}
+	if indexOf(first, "A: a") > indexOf(first, "Z: z") {
+		t.Fatalf("headers are not sorted: %#v", first)
+	}
+}
+
+func TestBuildDownloadArgs_RejectsInvalidInputList(t *testing.T) {
+	for _, inputs := range [][]Input{nil, {}, {{URL: "file:///tmp/video"}}} {
+		_, err := BuildDownloadArgs(DownloadOptions{Inputs: inputs, OutputPath: "/tmp/out.mp4"})
+		if err == nil {
+			t.Fatalf("inputs %#v should fail", inputs)
+		}
+	}
+}
+
 func TestBuildDownloadArgs_MP4ProfileTranscode(t *testing.T) {
 	args, err := BuildDownloadArgs(DownloadOptions{
 		InputURL:   "https://example.com/video.webm",
@@ -477,6 +527,16 @@ func indexOf(s []string, target string) int {
 		}
 	}
 	return -1
+}
+
+func countOf(s []string, target string) int {
+	count := 0
+	for _, value := range s {
+		if value == target {
+			count++
+		}
+	}
+	return count
 }
 
 func assertContains(t *testing.T, args []string, needle string) {

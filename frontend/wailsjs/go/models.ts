@@ -1,7 +1,10 @@
 export namespace download {
 	
 	export class MediaSource {
-	
+	    Inputs: ffmpeg.Input[];
+	    InputURL: string;
+	    SourceType: string;
+	    DurationSeconds?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MediaSource(source);
@@ -9,7 +12,47 @@ export namespace download {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Inputs = this.convertValues(source["Inputs"], ffmpeg.Input);
+	        this.InputURL = source["InputURL"];
+	        this.SourceType = source["SourceType"];
+	        this.DurationSeconds = source["DurationSeconds"];
+	    }
 	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace ffmpeg {
+	
+	export class Input {
+	    URL: string;
+	    Headers: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Input(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.URL = source["URL"];
+	        this.Headers = source["Headers"];
 	    }
 	}
 
@@ -43,6 +86,22 @@ export namespace main {
 	        this.phase = source["phase"];
 	    }
 	}
+	export class AnalyzeWithBrowserSessionRequest {
+	    url: string;
+	    browser: string;
+	    profile?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalyzeWithBrowserSessionRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.browser = source["browser"];
+	        this.profile = source["profile"];
+	    }
+	}
 	export class DownloadDirectoryResponse {
 	    path: string;
 	    isDefault: boolean;
@@ -55,6 +114,26 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	        this.isDefault = source["isDefault"];
+	    }
+	}
+	export class YTDLPStatus {
+	    available: boolean;
+	    currentVersion?: string;
+	    latestVersion?: string;
+	    source: string;
+	    canUpdate: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new YTDLPStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.currentVersion = source["currentVersion"];
+	        this.latestVersion = source["latestVersion"];
+	        this.source = source["source"];
+	        this.canUpdate = source["canUpdate"];
 	    }
 	}
 
@@ -266,6 +345,19 @@ export namespace media {
 		}
 	}
 	
+	
+	export class YTDLPSource {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new YTDLPSource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
 
 }
 

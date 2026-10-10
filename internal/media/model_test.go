@@ -17,6 +17,33 @@ func TestSourceTypeConstants(t *testing.T) {
 	if SourceDASH != "dash" {
 		t.Errorf("SourceDASH = %q, want %q", SourceDASH, "dash")
 	}
+	if SourceYTDLP != "yt-dlp" {
+		t.Errorf("SourceYTDLP = %q, want %q", SourceYTDLP, "yt-dlp")
+	}
+}
+
+func TestYTDLPSourceAndInternalSelectorNeverSerialize(t *testing.T) {
+	candidate := MediaCandidate{
+		ID:         "yt_abc",
+		SourceType: SourceYTDLP,
+		InternalYTDLPSource: &YTDLPSource{
+			PageURL:        "https://example.test/watch?token=secret",
+			FormatSelector: "137+140",
+			Browser:        "chrome",
+			Profile:        "Profile 1",
+		},
+		Variants: []MediaVariant{{ID: "fmt_abc", InternalFormatSelector: "137+140"}},
+	}
+	data, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serialized := string(data)
+	for _, forbidden := range []string{"token=secret", "137+140", "chrome", "Profile 1", "InternalYTDLPSource"} {
+		if strings.Contains(serialized, forbidden) {
+			t.Fatalf("backend-only value %q leaked: %s", forbidden, serialized)
+		}
+	}
 }
 
 func TestDownloadProfileConstants(t *testing.T) {

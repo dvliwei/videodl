@@ -1,0 +1,8 @@
+{
+  "id": "video-av",
+  "title": "Separate streams",
+  "formats": [
+    {"format_id": "137", "url": "https://cdn.example/video", "vcodec": "avc1", "acodec": "none", "height": 1080},
+    {"format_id": "140", "url": "https://cdn.example/audio", "vcodec": "none", "acodec": "mp4a.40.2"}
+  ]
+}

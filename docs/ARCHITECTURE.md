@@ -30,6 +30,16 @@ flowchart LR
 
 Go 业务包不依赖 Vue 或 Wails runtime；只有根包 `App` 处理 Wails 方法、系统对话框和事件。前端传分析 ID/候选 ID，不传任意媒体 URL 作为下载命令。分析器必须在请求时执行公网地址校验；FFmpeg 也要限制协议及重定向访问，避免由清单中的子资源绕过检查。
 
+## yt-dlp 网站解析链路
+
+默认分析链路为 `App → AnalysisService → yt-dlp standalone → restricted proxy → JSON mapping`。yt-dlp 只负责站点识别和格式解析；候选结果只包含不透明 ID、脱敏展示地址和媒体元数据，真实短期 URL/请求头保存在后端分析会话中。
+
+下载任务开始时，Go 按候选/变体 ID 重新调用 yt-dlp 获取最新 URL，再将一个或多个 HTTP(S) 输入交给 FFmpeg。这样既支持音视频分离格式，也避免把易过期签名 URL 暴露给前端。失败、取消和应用退出都通过 context 回收代理与子进程。
+
+yt-dlp 资源固定放在 `resources/yt-dlp/tools/<platform>/`，用户更新副本放在用户配置目录；两个位置都由显式解析器查找，绝不回退到系统 PATH。默认设置 `--ignore-config`、`--no-cookies-from-browser` 和 `YTDLP_NO_PLUGINS=1`。浏览器 Cookie 只在 Wails 的显式授权 API 中按 allowlist 读取。
+
+新增 Wails API：`GetYTDLPStatus`、`UpdateYTDLP`、`AnalyzeWithBrowserSession`。前端只发送网页 URL、浏览器名称和可选 profile 名称，不发送 Cookie、Cookie 文件路径、媒体 URL 或任意 yt-dlp 参数。
+
 ## 目标目录职责
 
 | 路径 | 职责 | 当前状态 |

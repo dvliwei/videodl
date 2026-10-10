@@ -1,0 +1,8 @@
+GNU General Public License version 3 or later
+
+The official yt-dlp PyInstaller executable includes GPLv3+ components. The
+canonical license text is available at:
+https://www.gnu.org/licenses/gpl-3.0.txt
+
+This repository records the applicable license and source URL. Release
+packaging must retain the upstream text alongside the executable.

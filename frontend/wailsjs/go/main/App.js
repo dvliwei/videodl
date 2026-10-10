@@ -6,6 +6,10 @@ export function Analyze(arg1) {
   return window['go']['main']['App']['Analyze'](arg1);
 }
 
+export function AnalyzeWithBrowserSession(arg1) {
+  return window['go']['main']['App']['AnalyzeWithBrowserSession'](arg1);
+}
+
 export function CancelAnalysis(arg1) {
   return window['go']['main']['App']['CancelAnalysis'](arg1);
 }
@@ -28,6 +32,10 @@ export function GetDefaultDirectory() {
 
 export function GetTask(arg1) {
   return window['go']['main']['App']['GetTask'](arg1);
+}
+
+export function GetYTDLPStatus() {
+  return window['go']['main']['App']['GetYTDLPStatus']();
 }
 
 export function ListTasks() {
@@ -60,4 +68,8 @@ export function SetDefaultDirectory(arg1) {
 
 export function StartDownload(arg1) {
   return window['go']['main']['App']['StartDownload'](arg1);
+}
+
+export function UpdateYTDLP() {
+  return window['go']['main']['App']['UpdateYTDLP']();
 }

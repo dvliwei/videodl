@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"videodl/internal/ffmpeg"
 	"videodl/internal/media"
+	"videodl/internal/ytdlp"
 )
 
 func firstNonEmpty(values ...string) string {
@@ -41,6 +43,21 @@ type ServiceOptions struct {
 	MaxConcurrency int
 }
 
+type AnalyzeOptions struct {
+	BrowserSession *ytdlp.BrowserSession
+}
+
+type YTDLPExtractor interface {
+	Extract(ctx context.Context, req ytdlp.ExtractRequest) (*ytdlp.Info, error)
+}
+
+type YTDLPProxy interface {
+	URL() string
+	Close() error
+}
+
+type YTDLPProxyFactory func(context.Context) (YTDLPProxy, error)
+
 func (o ServiceOptions) withDefaults() ServiceOptions {
 	if o.ProbeTimeout <= 0 {
 		o.ProbeTimeout = defaultServiceProbeTimeoutSeconds
@@ -52,9 +69,12 @@ func (o ServiceOptions) withDefaults() ServiceOptions {
 }
 
 type AnalysisService struct {
-	client  *SafeClient
-	invoker *ffmpeg.Invoker
-	opts    ServiceOptions
+	client       *SafeClient
+	invoker      *ffmpeg.Invoker
+	opts         ServiceOptions
+	ytdlp        YTDLPExtractor
+	proxyFactory YTDLPProxyFactory
+	ytdlpMu      sync.RWMutex
 }
 
 func NewAnalysisService(client *SafeClient, invoker *ffmpeg.Invoker) *AnalysisService {
@@ -67,6 +87,13 @@ func NewAnalysisService(client *SafeClient, invoker *ffmpeg.Invoker) *AnalysisSe
 	}
 }
 
+func NewAnalysisServiceWithYTDLP(client *SafeClient, invoker *ffmpeg.Invoker, extractor YTDLPExtractor, proxyFactory YTDLPProxyFactory) *AnalysisService {
+	service := NewAnalysisService(client, invoker)
+	service.ytdlp = extractor
+	service.proxyFactory = proxyFactory
+	return service
+}
+
 func (s *AnalysisService) WithOptions(opts ServiceOptions) *AnalysisService {
 	s.opts = opts.withDefaults()
 	return s
@@ -77,11 +104,34 @@ func (s *AnalysisService) SetInvoker(invoker *ffmpeg.Invoker) {
 	s.opts.FetchMediaInfo = invoker != nil
 }
 
+// SetYTDLP replaces the extractor used for future analysis attempts. Existing
+// attempts keep their own process and proxy lifetimes; the new runner is used
+// by subsequent analysis and task-start re-resolution calls.
+func (s *AnalysisService) SetYTDLP(extractor YTDLPExtractor, proxyFactory YTDLPProxyFactory) {
+	s.ytdlpMu.Lock()
+	defer s.ytdlpMu.Unlock()
+	s.ytdlp = extractor
+	s.proxyFactory = proxyFactory
+}
+
+func (s *AnalysisService) ytdlpConfig() (YTDLPExtractor, YTDLPProxyFactory) {
+	s.ytdlpMu.RLock()
+	defer s.ytdlpMu.RUnlock()
+	return s.ytdlp, s.proxyFactory
+}
+
 func (s *AnalysisService) Invoker() *ffmpeg.Invoker {
 	return s.invoker
 }
 
 func (s *AnalysisService) Analyze(ctx context.Context, rawURL string) (*media.AnalysisResult, error) {
+	return s.AnalyzeWithOptions(ctx, rawURL, AnalyzeOptions{})
+}
+
+func (s *AnalysisService) AnalyzeWithOptions(ctx context.Context, rawURL string, opts AnalyzeOptions) (*media.AnalysisResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -94,6 +144,134 @@ func (s *AnalysisService) Analyze(ctx context.Context, rawURL string) (*media.An
 	if err := s.client.validateAndResolveHost(u.Hostname()); err != nil {
 		return nil, err
 	}
+	if opts.BrowserSession != nil {
+		if err := ytdlp.ValidateBrowserSession(*opts.BrowserSession); err != nil {
+			return nil, err
+		}
+	}
+
+	extractor, proxyFactory := s.ytdlpConfig()
+	if extractor != nil {
+		if proxyFactory == nil {
+			return nil, fmt.Errorf("analyzer: yt-dlp proxy is not configured")
+		}
+		proxy, err := proxyFactory(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if proxy == nil {
+			return nil, fmt.Errorf("analyzer: yt-dlp proxy is unavailable")
+		}
+		defer proxy.Close()
+		info, extractErr := extractor.Extract(ctx, ytdlp.ExtractRequest{
+			URL:      u.String(),
+			Browser:  opts.BrowserSession,
+			ProxyURL: proxy.URL(),
+		})
+		if extractErr == nil {
+			candidate, mapErr := ytdlp.MapInfoToCandidate(info)
+			if mapErr == nil {
+				if candidate.InternalYTDLPSource != nil {
+					candidate.InternalYTDLPSource.PageURL = u.String()
+					if opts.BrowserSession != nil {
+						candidate.InternalYTDLPSource.Browser = opts.BrowserSession.Browser
+						candidate.InternalYTDLPSource.Profile = opts.BrowserSession.Profile
+					}
+				}
+				result := &media.AnalysisResult{ID: newAnalysisID(), PageTitle: candidate.Title, Candidates: []media.MediaCandidate{candidate}}
+				return result, nil
+			}
+			extractErr = mapErr
+		}
+		if !errors.Is(extractErr, ytdlp.ErrExtractorUnsupported) && !errors.Is(extractErr, ytdlp.ErrNoFormats) {
+			return nil, extractErr
+		}
+	}
+
+	return s.analyzeNative(ctx, u)
+}
+
+// ResolveYTDLPInputs re-runs the selected format at task start so signed
+// media URLs are short-lived backend data rather than analysis-session output.
+func (s *AnalysisService) ResolveYTDLPInputs(ctx context.Context, source *media.YTDLPSource, selector string) ([]ffmpeg.Input, error) {
+	extractor, proxyFactory := s.ytdlpConfig()
+	if source == nil || source.PageURL == "" || extractor == nil || proxyFactory == nil {
+		return nil, fmt.Errorf("analyzer: yt-dlp resolver is unavailable")
+	}
+	pageURL, err := ValidateURL(source.PageURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.client.validateAndResolveHost(pageURL.Hostname()); err != nil {
+		return nil, err
+	}
+	session := (*ytdlp.BrowserSession)(nil)
+	if source.Browser != "" {
+		session = &ytdlp.BrowserSession{Browser: source.Browser, Profile: source.Profile}
+		if err := ytdlp.ValidateBrowserSession(*session); err != nil {
+			return nil, err
+		}
+	}
+	proxy, err := proxyFactory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if proxy == nil {
+		return nil, fmt.Errorf("analyzer: yt-dlp proxy is unavailable")
+	}
+	defer proxy.Close()
+	info, err := extractor.Extract(ctx, ytdlp.ExtractRequest{
+		URL:            pageURL.String(),
+		FormatSelector: selector,
+		Browser:        session,
+		ProxyURL:       proxy.URL(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	formats := info.RequestedFormats
+	if len(formats) == 0 {
+		formats = selectYTDLPFormats(info.Formats, selector)
+	}
+	if len(formats) == 0 {
+		return nil, ytdlp.ErrNoFormats
+	}
+	inputs := make([]ffmpeg.Input, 0, len(formats))
+	for _, format := range formats {
+		parsed, parseErr := url.Parse(format.URL)
+		if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+			return nil, fmt.Errorf("analyzer: yt-dlp returned an invalid media URL")
+		}
+		if err := s.client.validateAndResolveHost(parsed.Hostname()); err != nil {
+			return nil, fmt.Errorf("analyzer: yt-dlp returned a blocked media URL")
+		}
+		headers := make(map[string]string, len(format.HTTPHeaders))
+		for key, value := range format.HTTPHeaders {
+			headers[key] = value
+		}
+		inputs = append(inputs, ffmpeg.Input{URL: format.URL, Headers: headers})
+	}
+	return inputs, nil
+}
+
+func selectYTDLPFormats(formats []ytdlp.Format, selector string) []ytdlp.Format {
+	if selector == "" {
+		return formats
+	}
+	ids := strings.Split(selector, "+")
+	selected := make([]ytdlp.Format, 0, len(ids))
+	for _, id := range ids {
+		for _, format := range formats {
+			if format.FormatID == id {
+				selected = append(selected, format)
+				break
+			}
+		}
+	}
+	return selected
+}
+
+func (s *AnalysisService) analyzeNative(ctx context.Context, u *url.URL) (*media.AnalysisResult, error) {
 
 	result := &media.AnalysisResult{
 		ID:         newAnalysisID(),

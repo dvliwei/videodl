@@ -8,12 +8,14 @@
 
 - **多平台支持**：Windows x86_64、macOS x86_64/ARM64、Linux x86_64
 - **多种资源识别**：HTML `<video>`/`<source>` 直链、HLS (`.m3u8`) 清单、DASH (`.mpd`) 清单
+- **视频网站解析**：内置官方 yt-dlp standalone，不要求用户安装 Python；解析失败时保留现有原生分析回退
 - **安全抓取**：自动拒绝 loopback、私有网段、链路本地和重定向到非公网地址
 - **任务管理**：并发限制、取消、重试、重名处理（覆盖/自动改名/取消）
 - **两种输出模式**：原质量无损封装（stream copy）和兼容 MP4（H.264/AAC）转码预设
 - **进度与状态**：每个任务显示准备、下载、合并/封装、转码、完成/取消/失败阶段
 - **离线运行**：FFmpeg 8.0.3 和 FFprobe 随应用分发，运行时不依赖系统 PATH 或网络下载
 - **完成后操作**：一键打开文件或所在目录
+- **解析器维护**：界面提供“检查并更新 yt-dlp”按钮，默认只更新官方 stable 版本
 
 ## 安装
 
@@ -67,7 +69,7 @@
 ### 不支持的场景
 
 - **DRM / 付费保护**：FairPlay、Widevine、PlayReady 等加密资源不识别、不绕过
-- **需要登录的页面**：不提取浏览器 Cookie，不支持凭据注入
+- **需要登录的页面**：默认不读取 Cookie；若用户明确授权，可按支持的浏览器和 profile 进行单次会话分析，但不绕过访问控制
 - **复杂反爬站点**：完全依赖 JavaScript 渲染、需要浏览器执行环境的页面
 - **任意 FFmpeg 参数**：前端无法传递自定义命令行，仅支持后端预设映射的有限转码方案
 - **暂停/续传**：首版不保证中断后从断点继续
@@ -94,7 +96,7 @@
 ## 本地开发
 
 1. 安装 Go 1.25、Node.js 20+、Wails CLI v2.16+ 以及当前操作系统所需的 Wails 构建依赖
-2. 拉取 FFmpeg 资源：`make ffmpeg-fetch && make ffmpeg-verify`
+2. 拉取 FFmpeg 与 yt-dlp 资源：`make ffmpeg-fetch && make ffmpeg-verify && make yt-dlp-fetch && make yt-dlp-verify`
 3. 在项目根目录运行 `wails dev` 启动开发模式（前端热重载 + Go 后端）
 
 ### Wails 构建依赖
@@ -114,19 +116,24 @@
 wails dev
 ```
 
-生产构建（当前平台）：
+正式打包（请在目标操作系统上执行）：
 
 ```sh
-# macOS
+# macOS（当前架构，生成 build/bin/videodl.app）
 make build-darwin
 
-# Windows（需在 Windows 上构建）
+# Windows x86_64（需在 Windows 上构建）
 make build-windows
 
-# Linux（需在 Linux 上构建）
+# Linux x86_64（需在 Linux 上构建）
 make build-linux
+```
 
-# 快速当前主机构建
+以上命令会自动获取并校验 FFmpeg/FFprobe 与 yt-dlp，执行 Wails 生产构建，将对应平台的媒体工具和许可证材料打入应用包；Windows/Linux 产物位于 `build/bin/`。Windows 和 Linux 必须分别在对应系统上打包，当前 Makefile 不提供跨平台交叉打包。
+
+仅需快速构建当前主机版本时可执行：
+
+```sh
 make quick-build
 ```
 
@@ -169,6 +176,16 @@ make ffmpeg-clean
 ```
 
 `ffmpeg-fetch` 只在构建时下载固定资产；应用运行时不联网获取 FFmpeg/FFprobe，也不使用系统 `PATH` 回退。
+
+## yt-dlp 发行材料
+
+yt-dlp 版本、平台资产、SHA-256、来源和许可证记录见 [`build/resources/yt-dlp/manifest.yaml`](build/resources/yt-dlp/manifest.yaml)；更新与许可证义务见 [`docs/yt-dlp/UPDATE_AND_LICENSE.md`](docs/yt-dlp/UPDATE_AND_LICENSE.md)。官方 standalone 包含 GPLv3+ 及其他第三方组件，发布时必须保留随包通知文件。完整性校验使用 SHA-256，不代表 GPG/签名身份认证。
+
+```sh
+make yt-dlp-manifest-test
+make yt-dlp-fetch
+make yt-dlp-verify
+```
 
 ## 发布验收清单
 

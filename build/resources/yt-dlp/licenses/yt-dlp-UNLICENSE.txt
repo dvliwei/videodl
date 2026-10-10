@@ -1,0 +1,8 @@
+yt-dlp source license: Unlicense
+
+The complete upstream license text is maintained by the yt-dlp project:
+https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE
+
+This notice accompanies the pinned official standalone executable. The
+standalone executable also includes components under additional licenses;
+see THIRD_PARTY_LICENSES.txt and GPL-3.0-or-later.txt in this directory.

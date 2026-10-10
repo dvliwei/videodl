@@ -6,6 +6,8 @@ import {download} from '../models';
 
 export function Analyze(arg1:main.AnalyzeRequest):Promise<main.AnalyzeResponse>;
 
+export function AnalyzeWithBrowserSession(arg1:main.AnalyzeWithBrowserSessionRequest):Promise<main.AnalyzeResponse>;
+
 export function CancelAnalysis(arg1:string):Promise<void>;
 
 export function CancelDownload(arg1:string):Promise<void>;
@@ -17,6 +19,8 @@ export function GetAnalysis(arg1:string):Promise<media.AnalysisResult>;
 export function GetDefaultDirectory():Promise<main.DownloadDirectoryResponse>;
 
 export function GetTask(arg1:string):Promise<media.DownloadTask>;
+
+export function GetYTDLPStatus():Promise<main.YTDLPStatus>;
 
 export function ListTasks():Promise<Array<media.DownloadTask>>;
 
@@ -33,3 +37,5 @@ export function SaveAs(arg1:string,arg2:string):Promise<string>;
 export function SetDefaultDirectory(arg1:string):Promise<void>;
 
 export function StartDownload(arg1:media.DownloadRequest):Promise<media.DownloadTask>;
+
+export function UpdateYTDLP():Promise<main.YTDLPStatus>;

@@ -55,6 +55,7 @@ function getVariantLabel(v) {
 
 const effectiveVariantId = computed(() => {
   if (props.selectedVariantId) return props.selectedVariantId
+  if (props.candidate.sourceType === 'yt-dlp') return ''
   if (hasVariants.value && props.candidate.variants[0]) {
     return props.candidate.variants[0].id || ''
   }
@@ -157,4 +158,3 @@ function handleSelectVariant(variantId) {
     </footer>
   </article>
 </template>
-ENDOFFILE

@@ -14,6 +14,7 @@ import (
 	"videodl/internal/download"
 	"videodl/internal/media"
 	"videodl/internal/settings"
+	"videodl/internal/ytdlp"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -694,4 +695,37 @@ func TestRuntimePackageImported(t *testing.T) {
 	// in order to bridge Go events to the frontend. The fact this test file
 	// compiles at all means the import path is correct.
 	_ = runtime.EventsEmit
+}
+
+func TestGetYTDLPStatus_UnavailableIsRepresentable(t *testing.T) {
+	app := &App{}
+
+	status, err := app.GetYTDLPStatus()
+	if err != nil {
+		t.Fatalf("status should be readable when yt-dlp is unavailable: %v", err)
+	}
+	if status == nil {
+		t.Fatal("status should not be nil")
+	}
+	if status.Available {
+		t.Fatal("missing yt-dlp should not be reported as available")
+	}
+	if status.Source != "unavailable" {
+		t.Fatalf("source = %q, want unavailable", status.Source)
+	}
+}
+
+func TestAnalyzeWithBrowserSession_RejectsUnsupportedBrowserSynchronously(t *testing.T) {
+	app := &App{}
+
+	_, err := app.AnalyzeWithBrowserSession(AnalyzeWithBrowserSessionRequest{
+		URL:     "https://example.com/video",
+		Browser: "unknown-browser",
+	})
+	if err == nil {
+		t.Fatal("unsupported browser should be rejected before starting a task")
+	}
+	if !errors.Is(err, ytdlp.ErrInvalidBrowser) {
+		t.Fatalf("error = %v, want ErrInvalidBrowser", err)
+	}
 }

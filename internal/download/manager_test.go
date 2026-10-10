@@ -1,6 +1,7 @@
 package download
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -32,13 +33,27 @@ func writeStubScript(t *testing.T, dir, name, script string) string {
 
 type stubResolver struct{}
 
-func (s *stubResolver) Resolve(analysisID, mediaID, variantID string) (*MediaSource, error) {
+func (s *stubResolver) Resolve(ctx context.Context, analysisID, mediaID, variantID string) (*MediaSource, error) {
+	_ = ctx
 	dur := 10.0
 	return &MediaSource{
-		InputURL:        "https://example.com/stub/" + mediaID,
+		Inputs:          []ffmpeg.Input{{URL: "https://example.com/stub/" + mediaID}},
 		SourceType:      media.SourceDirect,
 		DurationSeconds: &dur,
 	}, nil
+}
+
+type blockingResolver struct {
+	called chan context.Context
+}
+
+func (r *blockingResolver) Resolve(ctx context.Context, analysisID, mediaID, variantID string) (*MediaSource, error) {
+	select {
+	case r.called <- ctx:
+	default:
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 func stubFFmpegSuccessScript() string {
@@ -245,6 +260,40 @@ func TestManager_CancelQueued(t *testing.T) {
 	}
 }
 
+func TestManager_ResolverReceivesTaskContextCancellation(t *testing.T) {
+	tmp := t.TempDir()
+	resolver := &blockingResolver{called: make(chan context.Context, 1)}
+	cfg := fakeManagerConfig(t, tmp)
+	cfg.Resolver = resolver
+	m := NewManager(cfg)
+	defer m.Close()
+
+	task, err := m.Create(newDownloadRequest("context"), "Context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ctx := <-resolver.called:
+		if ctx == nil {
+			t.Fatal("resolver received nil context")
+		}
+		if err := m.Cancel(task.ID()); err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("resolver was not called")
+	}
+	deadline := time.After(2 * time.Second)
+	for task.State() != media.TaskCanceled {
+		select {
+		case <-deadline:
+			t.Fatalf("task state = %s, want canceled", task.State())
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
 func TestManager_CancelRepeat(t *testing.T) {
 	m, _ := newTestManager(t)
 	defer m.Close()
@@ -440,20 +489,6 @@ func TestManager_CancelOneDoesNotAffectOthers(t *testing.T) {
 	task2, _ := m.Create(newDownloadRequest("2"), "Video 2")
 	task3, _ := m.Create(newDownloadRequest("3"), "Video 3")
 
-	var task3Completed atomic.Bool
-	go func() {
-		for {
-			if task3.State() == media.TaskCompleted {
-				task3Completed.Store(true)
-				return
-			}
-			if m.IsClosed() {
-				return
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-	}()
-
 	time.Sleep(100 * time.Millisecond)
 
 	m.Cancel(task1.ID())
@@ -475,9 +510,8 @@ func TestManager_CancelOneDoesNotAffectOthers(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout waiting for task3 to complete")
 	}
-
-	if !task3Completed.Load() {
-		t.Error("task3 should have completed while others were canceled")
+	if task3.State() != media.TaskCompleted {
+		t.Fatalf("task3 state = %s, want completed", task3.State())
 	}
 
 	if task1.State() != media.TaskCanceled {

@@ -24,6 +24,25 @@
 - 最终文件只能在任务成功并校验后从临时文件发布；重名必须由用户决策或采用安全的自动改名策略。
 - 不实现 DRM 解密、登录凭据提取、付费/访问控制绕过或任意 FFmpeg 参数输入。
 
+## yt-dlp 网站解析迭代（2026-10-10）
+
+此迭代供 TRAE 按任务执行；每次只执行一个任务，先读 `AGENTS.md`、本文件、`PRODUCT_SPEC.md`、`ARCHITECTURE.md` 和 `docs/superpowers/plans/2026-10-10-yt-dlp-integration.md`。不要求用户安装 Python，yt-dlp 只作为官方 standalone 子进程运行。
+
+| 任务 | 结果 | 验收入口 |
+|---|---|---|
+| 1. 官方资源清单与解析器 | 已完成 | `go test ./internal/ytdlp -count=1`、`make yt-dlp-manifest-test`、`make yt-dlp-verify` |
+| 2. JSON 子进程接口 | 已完成 | `go test ./internal/ytdlp -count=1` |
+| 3. 媒体映射与浏览器授权校验 | 已完成 | `go test ./internal/ytdlp ./internal/media -count=1` |
+| 4. 公网限制代理 | 已完成 | `go test -race ./internal/netguard -count=1` |
+| 5. yt-dlp 优先分析与原生回退 | 已完成 | `go test ./internal/analyzer -count=1` |
+| 6. FFmpeg 多输入与任务重解析 | 已完成 | `go test ./internal/ffmpeg ./internal/download -count=1` |
+| 7. stable 更新器与回滚 | 已完成 | `go test -race ./internal/ytdlp -count=1` |
+| 8. Wails API 与生命周期 | 已完成 | `go test . -count=1`、`wails generate module` |
+| 9. Vue 更新按钮与授权提示 | 已完成 | `npm run test:unit`、`npm run build` |
+| 10. 资源打包与发布文档 | 已完成 | `make yt-dlp-manifest-test`、`scripts/copy_yt_dlp_to_bundle.sh` 冒烟 |
+
+每项完成后检查 `git diff`，不得提交下载的二进制、真实媒体、Cookie、密钥或机器专属路径。Windows/Linux 构建、macOS 正式签名/公证和真实授权站点下载仍需目标环境与获授权样本。
+
 ## 重点审查场景
 
 - 重定向或 DNS 解析指向本机/内网：请求应在访问目标前拒绝。

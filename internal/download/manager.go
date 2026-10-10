@@ -29,6 +29,9 @@ const (
 // App layer) pulls the real URL from the analysis session, which is why this
 // type lives in download and not in the frontend-facing media package.
 type MediaSource struct {
+	Inputs []ffmpeg.Input
+	// InputURL is retained for native callers during the transition to
+	// multi-input sources. New resolvers should fill Inputs.
 	InputURL        string
 	SourceType      media.SourceType
 	DurationSeconds *float64
@@ -37,7 +40,7 @@ type MediaSource struct {
 // MediaSourceResolver turns opaque frontend IDs into a MediaSource. App
 // implements this using its analysisResults cache; unit tests inject a stub.
 type MediaSourceResolver interface {
-	Resolve(analysisID, mediaID, variantID string) (*MediaSource, error)
+	Resolve(ctx context.Context, analysisID, mediaID, variantID string) (*MediaSource, error)
 }
 
 type ManagerConfig struct {
@@ -709,14 +712,20 @@ func (m *Manager) runDownloadPhase(ctx context.Context, task *Task) error {
 	req := task.Request
 	task.mu.RUnlock()
 
-	src, err := resolver.Resolve(req.AnalysisID, req.MediaID, req.VariantID)
+	src, err := resolver.Resolve(ctx, req.AnalysisID, req.MediaID, req.VariantID)
 	if err != nil {
 		return newTaskError("download.resolve_failed",
 			fmt.Sprintf("failed to resolve media source: %v", err), err)
 	}
-	if src == nil || src.InputURL == "" {
-		return newTaskError("download.resolve_empty",
-			"resolver returned empty input URL", nil)
+	if src == nil {
+		return newTaskError("download.resolve_empty", "resolver returned no media source", nil)
+	}
+	inputs := src.Inputs
+	if len(inputs) == 0 && src.InputURL != "" {
+		inputs = []ffmpeg.Input{{URL: src.InputURL}}
+	}
+	if len(inputs) == 0 {
+		return newTaskError("download.resolve_empty", "resolver returned no input URLs", nil)
 	}
 
 	if err := m.ensureStagingFile(task, ".part"); err != nil {
@@ -728,15 +737,15 @@ func (m *Manager) runDownloadPhase(ctx context.Context, task *Task) error {
 	task.mu.RUnlock()
 
 	opts := ffmpeg.DownloadOptions{
-		InputURL:        src.InputURL,
+		Inputs:          inputs,
 		SourceType:      src.SourceType,
 		OutputPath:      outputPath,
 		Profile:         media.ProfileOriginal,
 		DurationSeconds: src.DurationSeconds,
 	}
 
-	m.log("task %s: downloading %s -> %s",
-		task.ID(), src.InputURL, outputPath)
+	m.log("task %s: downloading %d input(s) -> %s",
+		task.ID(), len(inputs), outputPath)
 
 	sink := &taskProgressSink{task: task}
 
